@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Secure GitHub Connections: Only the owner whose authenticated email matches the document ID can read/write
+    match /github_connections/{email} {
+      allow read, write: if request.auth != null && request.auth.token.email.lower() == email.lower();
+    }
+
+    // 2. Permissive match blocks for other collections to ensure continuous application functionality in development
+    match /user_accounts/{uid} {
+      allow read, write: if true;
+    }
+    match /user_subscriptions_v3/{id} {
+      allow read, write: if true;
+    }
+    match /products/{id} {
+      allow read, write: if true;
+    }
+    match /sellers/{id} {
+      allow read, write: if true;
+    }
+    match /referrals/{id} {
+      allow read, write: if true;
+    }
+    match /dropbox_keys/{id} {
+      allow read, write: if true;
+    }
+    match /competitions/{id} {
+      allow read, write: if true;
+    }
+    match /tutorials/{id} {
+      allow read, write: if true;
+    }
+    match /bugs/{id} {
+      allow read, write: if true;
+    }
+  }
+}

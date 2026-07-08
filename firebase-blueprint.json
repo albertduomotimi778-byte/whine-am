@@ -1,0 +1,207 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A product for sale",
+      "type": "object",
+      "properties": {
+        "price": { "type": "string", "description": "Free or Paid indicator" },
+        "category": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "amount": { "type": "number", "description": "Price of the product" },
+        "name": { "type": "string" },
+        "timesPurchased": { "type": "number" },
+        "sellerId": { "type": "string" },
+        "productUrl": { "type": "string" },
+        "starRating": { "type": "string" },
+        "productDescription": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["price", "category", "thumbnail", "images", "amount", "name", "timesPurchased", "sellerId", "productUrl", "createdAt", "updatedAt"]
+    },
+    "Seller": {
+      "title": "Seller",
+      "description": "Seller payment information",
+      "type": "object",
+      "properties": {
+        "sellerId": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "bankName": { "type": "string" },
+        "bankOwnerName": { "type": "string" },
+        "payout": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["sellerId", "accountNumber", "bankName", "bankOwnerName", "payout", "createdAt", "updatedAt"]
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "Referral payment information",
+      "type": "object",
+      "properties": {
+        "referralId": { "type": "string" },
+        "numberOfReferences": { "type": "number" },
+        "accountNumber": { "type": "string" },
+        "bankName": { "type": "string" },
+        "bankOwnerName": { "type": "string" },
+        "payout": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["referralId", "numberOfReferences", "accountNumber", "bankName", "bankOwnerName", "payout", "createdAt", "updatedAt"]
+    },
+    "ReferredSubscriber": {
+      "title": "ReferredSubscriber",
+      "description": "Maps referred subscriber emails to referral codes",
+      "type": "object",
+      "properties": {
+        "referralId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["referralId", "createdAt"]
+    },
+    "Competition": {
+      "title": "Competition",
+      "description": "Premium competition details for creators",
+      "type": "object",
+      "properties": {
+        "competition": { "type": "string" },
+        "price": { "type": "string" },
+        "eligibility": { "type": "string" },
+        "end_date": { "type": "string" },
+        "applicants": { "type": "number" },
+        "what_to_submit": { "type": "string" },
+        "input_fields": { "type": "string" }
+      },
+      "required": ["competition", "price", "eligibility", "end_date", "applicants", "what_to_submit", "input_fields"]
+    },
+    "Tutorial": {
+      "title": "Tutorial",
+      "description": "YouTube video tutorial metadata",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "youtube_link": { "type": "string" },
+        "views": { "type": "number" }
+      },
+      "required": ["title", "youtube_link", "views"]
+    },
+    "CompetitionSubmission": {
+      "title": "CompetitionSubmission",
+      "description": "Contest submissions uploaded by users",
+      "type": "object",
+      "properties": {
+        "submissionId": { "type": "string" },
+        "competitionId": { "type": "string" },
+        "competitionName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "formData": { "type": "object" },
+        "submittedAt": { "type": "object" }
+      },
+      "required": ["submissionId", "competitionId", "competitionName", "userEmail", "formData"]
+    },
+    "UserCloudProject": {
+      "title": "UserCloudProject",
+      "description": "Premium multi-device cloud backup storage project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "project_data": { "type": "string", "description": "Serialized project payload" },
+        "size_bytes": { "type": "number" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "project_data", "size_bytes", "updated_at"]
+    },
+    "ProductAsset": {
+      "title": "ProductAsset",
+      "description": "Chunked assets for store products",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "chunkIndex": { "type": "number" },
+        "totalChunks": { "type": "number" },
+        "data": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["productId", "fileName", "chunkIndex", "totalChunks", "data"]
+    },
+    "DropboxKey": {
+      "title": "DropboxKey",
+      "description": "Dropbox API keys configuration",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "apiKey": { "type": "string" },
+        "appKey": { "type": "string" },
+        "appSecret": { "type": "string" },
+        "refreshToken": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "GitHubConnection": {
+      "title": "GitHubConnection",
+      "description": "Stored GitHub connection credentials for a user",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "access_token": { "type": "string" },
+        "username": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "connectedAt": { "type": "string" }
+      },
+      "required": ["email", "access_token", "username"]
+    }
+  },
+  "firestore": {
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Contains products available"
+    },
+    "sellers/{sellerId}": {
+      "schema": "Seller",
+      "description": "Contains seller information"
+    },
+    "referrals/{referralId}": {
+      "schema": "Referral",
+      "description": "Contains referral information"
+    },
+    "referred_subscribers/{subscriberEmail}": {
+      "schema": "ReferredSubscriber",
+      "description": "Contains referred subscriber mappings"
+    },
+    "competitions/{competitionId}": {
+      "schema": "Competition",
+      "description": "Contains active creator competitions"
+    },
+    "tutorials/{tutorialId}": {
+      "schema": "Tutorial",
+      "description": "Contains tutorial videos"
+    },
+    "competition_submissions/{submissionId}": {
+      "schema": "CompetitionSubmission",
+      "description": "Entries submitted by users for competitions"
+    },
+    "user_cloud_projects/{projectId}": {
+      "schema": "UserCloudProject",
+      "description": "Cloud backup storage projects"
+    },
+    "product_assets/{assetId}": {
+      "schema": "ProductAsset",
+      "description": "Chunked assets for store products"
+    },
+    "dropbox_keys/{keyId}": {
+      "schema": "DropboxKey",
+      "description": "Dropbox API keys for file storage integrations"
+    },
+    "github_connections/{subscriberEmail}": {
+      "schema": "GitHubConnection",
+      "description": "Stored GitHub connections for users"
+    }
+  }
+}

@@ -1,0 +1,192 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'albertduomotimi778@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+
+    // 1. User Cloud Project validation
+    function isValidUserCloudProject(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.email is string && data.email.size() <= 128 &&
+             data.name is string && data.name.size() <= 256 &&
+             (data.project_data == null || (data.project_data is string && data.project_data.size() <= 10485760)) &&
+             (data.size_bytes is number && data.size_bytes >= 0) &&
+             data.updated_at is string && data.updated_at.size() <= 64 &&
+             data.email == request.auth.token.email;
+    }
+
+    function isValidUserCloudProjectChunk(data) {
+      return data.chunk_data is string && data.chunk_data.size() <= 1048576 &&
+             data.email is string && data.email.size() <= 128 &&
+             data.parentProjectId is string && data.parentProjectId.size() <= 128 &&
+             data.email == request.auth.token.email;
+    }
+
+    // 2. Competition Submission validation
+    function isValidCompetitionSubmission(data) {
+      return data.submissionId is string && data.submissionId.size() <= 128 &&
+             data.competitionId is string && data.competitionId.size() <= 128 &&
+             data.competitionName is string && data.competitionName.size() <= 256 &&
+             data.userEmail is string && data.userEmail.size() <= 128 &&
+             data.formData is map &&
+             data.userEmail == request.auth.token.email;
+    }
+
+    // 3. Dropbox Key validation
+    function isValidDropboxKey(data) {
+      return data.name is string && data.name.size() <= 128;
+    }
+
+    // 4. Product validation
+    function isValidProduct(data) {
+      return data.price is string && data.price.size() <= 64 &&
+             data.category is string && data.category.size() <= 128 &&
+             data.thumbnail is string && data.thumbnail.size() <= 512 &&
+             data.images is list && data.images.size() <= 10 &&
+             data.amount is number && data.amount >= 0 &&
+             data.name is string && data.name.size() <= 256 &&
+             data.timesPurchased is number && data.timesPurchased >= 0 &&
+             data.sellerId is string && data.sellerId.size() <= 128 &&
+             data.productUrl is string && data.productUrl.size() <= 512;
+    }
+
+    // --- Path Rules ---
+
+    // products collection
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidProduct(incoming());
+    }
+
+    // sellers collection
+    match /sellers/{sellerId} {
+      allow read: if isAdmin() || (isVerified() && (sellerId == request.auth.uid || sellerId == request.auth.token.email));
+      allow create, update: if isAdmin() || (isVerified() && (sellerId == request.auth.uid || sellerId == request.auth.token.email) && incoming().sellerId == sellerId);
+      allow delete: if isAdmin();
+    }
+
+    // referrals collection
+    match /referrals/{referralId} {
+      allow read: if isAdmin() || (isVerified() && (referralId == request.auth.uid || referralId == request.auth.token.email));
+      allow create, update: if isAdmin() || (isVerified() && (referralId == request.auth.uid || referralId == request.auth.token.email) && incoming().referralId == referralId);
+      allow delete: if isAdmin();
+    }
+
+    // referred_subscribers collection
+    match /referred_subscribers/{subscriberEmail} {
+      allow read: if isAdmin() || (isVerified() && request.auth.token.email.lower() == subscriberEmail.lower());
+      allow create, update: if isVerified() && (request.auth.token.email.lower() == subscriberEmail.lower() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // competitions collection
+    match /competitions/{competitionId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // tutorials collection
+    match /tutorials/{tutorialId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // competition_submissions collection
+    match /competition_submissions/{submissionId} {
+      allow read: if isAdmin() || (isVerified() && existing().userEmail == request.auth.token.email);
+      allow create: if isVerified() && isValidId(submissionId) && isValidCompetitionSubmission(incoming());
+      allow update: if isVerified() && isValidId(submissionId) && existing().userEmail == request.auth.token.email && isValidCompetitionSubmission(incoming()) && incoming().competitionId == existing().competitionId;
+      allow delete: if isAdmin() || (isVerified() && existing().userEmail == request.auth.token.email);
+    }
+
+    // user_cloud_projects collection
+    match /user_cloud_projects/{projectId} {
+      allow read: if isAdmin() || (isVerified() && (
+        // For chunks, we verify ownership on the chunk document itself
+        (existing().email == request.auth.token.email) ||
+        // If it's a chunk doc, it has an email field, check that
+        (existing().chunk_data != null && existing().email == request.auth.token.email)
+      ));
+      
+      allow create: if isVerified() && isValidId(projectId) && (
+        (incoming().chunk_data != null && isValidUserCloudProjectChunk(incoming())) ||
+        (incoming().chunk_data == null && isValidUserCloudProject(incoming()))
+      );
+      
+      allow update: if isVerified() && isValidId(projectId) && (
+        // Update chunk
+        (existing().chunk_data != null && incoming().chunk_data != null && isValidUserCloudProjectChunk(incoming())) ||
+        // Update regular project
+        (existing().chunk_data == null && incoming().chunk_data == null && existing().email == request.auth.token.email && isValidUserCloudProject(incoming()))
+      );
+      
+      allow delete: if isAdmin() || (isVerified() && (
+        (existing().email == request.auth.token.email) ||
+        (existing().chunk_data != null && existing().email == request.auth.token.email)
+      ));
+    }
+
+    // product_assets collection
+    match /product_assets/{assetId} {
+      allow read: if isVerified();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // dropbox_keys collection
+    match /dropbox_keys/{keyId} {
+      allow read: if isVerified();
+      allow create, update, delete: if isAdmin() && isValidDropboxKey(incoming());
+    }
+
+    // Legacy/Additional compatible paths
+    match /user_accounts/{accountId} {
+      allow read: if isAdmin() || (isVerified() && (accountId == request.auth.uid || accountId == request.auth.token.email));
+      allow create, update: if isVerified() && (accountId == request.auth.uid || accountId == request.auth.token.email);
+      allow delete: if isAdmin();
+    }
+
+    match /user_subscriptions_v3/{subId} {
+      allow read: if isAdmin() || (isVerified() && (subId == request.auth.uid || subId == request.auth.token.email));
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /bugs/{bugId} {
+      allow read: if isVerified();
+      allow create: if isVerified();
+      allow update, delete: if isAdmin() || (isVerified() && existing().userId == request.auth.uid);
+    }
+  }
+}

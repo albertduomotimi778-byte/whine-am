@@ -1,0 +1,11 @@
+{
+  "name": " 033: Animato Studio update: Professional Animation Tool",
+  "description": "Powerful frame-by-frame drawing, skeletal rigging, audio-synced animation, and AI lip-sync studio for professional animators",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

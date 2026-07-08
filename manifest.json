@@ -1,0 +1,22 @@
+{
+  "name": "Animato: Ultimate Mobile Animation Studio",
+  "short_name": "Animato",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#09090b",
+  "theme_color": "#00f2ff",
+  "description": "Professional animation studio in your pocket.",
+  "icons": [
+    {
+      "src": "https://cdn.lucide.dev/icon-library/clapperboard.svg", 
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "https://cdn.lucide.dev/icon-library/clapperboard.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
