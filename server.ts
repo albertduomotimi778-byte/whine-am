@@ -2097,11 +2097,11 @@ app.post('/api/github/deploy', async (req, res) => {
     return res.status(400).json({ error: 'Missing required parameters' });
   }
 
-  const repoFullName = rawRepoFullName.replace(/^\/+|\/+$/g, '');
+  const repoFullName = (rawRepoFullName || "").replace(/^\/+|\/+$/g, '');
   const logs: string[] = [];
   const addLog = (msg: string, level: 'info' | 'warn' | 'error' = 'info') => {
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-    const logLine = `[${timestamp}] ${msg}`;
+    const logLine = `[${timestamp}] [${level.toUpperCase()}] ${msg}`;
     logs.push(logLine);
     if (level === 'info') console.log(`[GitHubDeploy] ${msg}`);
     else if (level === 'warn') console.warn(`[GitHubDeploy] ${msg}`);
@@ -2110,6 +2110,10 @@ app.post('/api/github/deploy', async (req, res) => {
 
   try {
     const [owner, repoNamePart] = repoFullName.split('/');
+    if (!owner || !repoNamePart) {
+      addLog(`Invalid repository format: "${repoFullName}". Expected "owner/repo"`, 'error');
+      return res.status(400).json({ error: 'Invalid repository name format' });
+    }
     addLog(`Starting deployment pipeline. Raw repoFullName: "${rawRepoFullName}", Cleaned: "${repoFullName}", Resolved Owner: "${owner}", Repo: "${repoNamePart}"`);
     addLog(`Starting deployment. Resolved Owner: "${owner}", Repository: "${repoNamePart}" (Full Name: "${repoFullName}")`);
 
@@ -2300,7 +2304,68 @@ app.post('/api/github/deploy', async (req, res) => {
 
     // 2. Prepare files to push
     addLog('Preparing files to push...');
-    const files = [
+
+    const processedGameData = JSON.parse(JSON.stringify(gameData));
+    const extraPushedFiles: { path: string; content: string; isBase64?: boolean }[] = [];
+    let videoCount = 0;
+    let bundledVideoCount = 0;
+    let audioCount = 0;
+    let bundledAudioCount = 0;
+
+    // Recursive asset extractor to handle ALL base64 assets in the project
+    let assetCount = 0;
+    const extractAssets = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return;
+      
+      for (const key in obj) {
+        const val = obj[key];
+        if (typeof val === 'string' && val.startsWith('data:')) {
+          const match = val.match(/^data:([^/]+)\/([^;]+);base64,(.*)$/);
+          if (match) {
+            const type = match[1]; // image, audio, video
+            let ext = match[2]; // png, mpeg, etc
+            const base64Data = match[3];
+            
+            // Normalize extensions
+            if (ext === 'mpeg' || ext === 'x-mpeg' || ext === 'x-mp3' || ext === 'mp3') ext = 'mp3';
+            if (ext === 'x-wav' || ext === 'wav') ext = 'wav';
+            if (ext === 'quicktime') ext = 'mov';
+            if (ext.includes('svg')) ext = 'svg';
+
+            const folder = type === 'image' ? 'images' : (type === 'video' ? 'videos' : 'audio');
+            const fileName = `asset_${assetCount}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
+            const assetPath = `public/assets/${folder}/${fileName}`;
+            
+            extraPushedFiles.push({
+              path: assetPath,
+              content: base64Data,
+              isBase64: true
+            });
+            
+            // Update reference in gameData to relative path - use ./assets for vite production build
+            obj[key] = `./assets/${folder}/${fileName}`;
+            assetCount++;
+            
+            if (type === 'video') bundledVideoCount++;
+            else if (type === 'audio') bundledAudioCount++;
+          }
+        } else if (val && typeof val === 'object') {
+          extractAssets(val);
+        }
+      }
+    };
+
+    extractAssets(processedGameData);
+
+    // Print metrics log
+    addLog(`[BUILD-TIME CHECK] Asset Bundling Statistics:`);
+    addLog(`  - Total base64 assets extracted and bundled: ${assetCount}`);
+    addLog(`  - Video assets successfully bundled: ${bundledVideoCount}`);
+    addLog(`  - Audio assets successfully bundled: ${bundledAudioCount}`);
+    addLog(`[BUILD-TIME CHECK] Binary Extraction Pipeline Complete.`);
+    addLog(`[BUILD-TIME CHECK] GitHub Pages base URL configured to './'`);
+
+    const files: { path: string; content: string; isBase64?: boolean }[] = [
       {
         path: 'package.json',
         content: JSON.stringify({
@@ -2361,11 +2426,242 @@ app.post('/api/github/deploy', async (req, res) => {
       },
       {
         path: 'src/game-data.json',
-        content: JSON.stringify(gameData, null, 2)
+        content: JSON.stringify(processedGameData, null, 2)
       },
       {
         path: 'src/App.tsx',
-        content: `import React, { useState, useEffect, useRef } from 'react';\nimport gameData from './game-data.json';\n\nconst AnimatedSprite = ({ frames, fps, speed = 1, width, height }: { frames: string[], fps: number, speed?: number, width: number, height: number }) => {\n  const [currentFrame, setCurrentFrame] = useState(0);\n  \n  useEffect(() => {\n    if (!frames || frames.length === 0) return;\n    const actualFps = (fps || 24) * speed;\n    const interval = setInterval(() => {\n      setCurrentFrame(prev => (prev + 1) % frames.length);\n    }, 1000 / actualFps);\n    return () => clearInterval(interval);\n  }, [frames, fps, speed]);\n\n  if (!frames || frames.length === 0) {\n    return <div style={{ width: '100%', height: '100%', backgroundColor: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#71717a' }}>No Anim</div>;\n  }\n\n  return (\n    <div \n      style={{\n        width: '100%',\n        height: '100%',\n        backgroundImage: \`url(\${frames[currentFrame]})\`,\n        backgroundSize: '100% 100%',\n        backgroundRepeat: 'no-repeat'\n      }}\n    />\n  );\n};\n\nexport default function GameRunner() {\n  const [activeSceneId, setActiveSceneId] = useState(gameData.activeSceneId || 'scene_1');\n  const [stageElements, setStageElements] = useState([]);\n  const [windowSize, setWindowSize] = useState({ width: typeof window !== 'undefined' ? window.innerWidth : 640, height: typeof window !== 'undefined' ? window.innerHeight : 360 });\n  const [showRotationPrompt, setShowRotationPrompt] = useState(false);\n\n  const aspectRatio = gameData.aspectRatio || 'landscape';\n  const VIRTUAL_WIDTH = aspectRatio === 'landscape' ? 640 : 360;\n  const VIRTUAL_HEIGHT = aspectRatio === 'landscape' ? 360 : 640;\n\n  useEffect(() => {\n    const handleResize = () => {\n      const w = window.innerWidth;\n      const h = window.innerHeight;\n      setWindowSize({ width: w, height: h });\n      if (aspectRatio === 'landscape' && w < h) {\n        setShowRotationPrompt(true);\n      } else if (aspectRatio === 'portrait' && w > h) {\n        setShowRotationPrompt(true);\n      } else {\n        setShowRotationPrompt(false);\n      }\n    };\n    handleResize();\n    window.addEventListener('resize', handleResize);\n    return () => window.removeEventListener('resize', handleResize);\n  }, [aspectRatio]);\n\n  const scale = (() => {\n    const maxW = windowSize.width;\n    const maxH = windowSize.height;\n    return Math.min(maxW / VIRTUAL_WIDTH, maxH / VIRTUAL_HEIGHT);\n  })();\n\n  const stageElementsRef = useRef(stageElements);\n  useEffect(() => {\n    stageElementsRef.current = stageElements;\n  }, [stageElements]);\n\n  useEffect(() => {\n    const sceneEls = gameData.sceneElements[activeSceneId] || [];\n    setStageElements(sceneEls);\n  }, [activeSceneId]);\n\n  const executeAction = (act) => {\n    switch (act.type) {\n      case 'goto_scene':\n        if (act.target) {\n          const exists = (gameData.scenes || []).some(s => s.id === act.target);\n          if (exists) {\n            setActiveSceneId(act.target);\n          }\n        }\n        break;\n\n      case 'change_opacity':\n        if (act.target) {\n          const val = Number(act.value ?? 50) / 100;\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, opacity: val };\n            }\n            return el;\n          }));\n        }\n        break;\n\n      case 'destroy':\n        if (act.target) {\n          setStageElements(prev => prev.filter(el => el.data !== act.target && el.id !== act.target && el.buttonId !== act.target));\n        }\n        break;\n\n      case 'play_sound':\n        try {\n          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();\n          const osc = audioCtx.createOscillator();\n          const gainNode = audioCtx.createGain();\n          osc.connect(gainNode);\n          gainNode.connect(audioCtx.destination);\n          osc.frequency.value = 523.25;\n          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);\n          gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);\n          osc.start();\n          osc.stop(audioCtx.currentTime + 0.3);\n        } catch (e) {\n          console.warn("Audio Context blocked or failed:", e);\n        }\n        break;\n\n      case 'move_to':\n        if (act.target) {\n          const targetX = Number(act.x ?? 100);\n          const targetY = Number(act.y ?? 100);\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, x: targetX, y: targetY };\n            }\n            return el;\n          }));\n        }\n        break;\n\n      case 'move_straight':\n      case 'move_zigzag':\n        if (act.target) {\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, x: el.x + 80, y: el.y + (act.type === 'move_zigzag' ? 30 : 0) };\n            }\n            return el;\n          }));\n        }\n        break;\n\n      case 'change_color':\n      case 'glow':\n        if (act.target) {\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, colorFilter: act.value };\n            }\n            return el;\n          }));\n        }\n        break;\n\n      case 'rotate':\n        if (act.target) {\n          const rotationDegrees = Number(act.value ?? 15);\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, rotation: (el.rotation || 0) + rotationDegrees };\n            }\n            return el;\n          }));\n        }\n        break;\n        \n      case 'inc_width':\n        if (act.target) {\n          const addWidth = Number(act.value ?? 10);\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, width: el.width + addWidth };\n            }\n            return el;\n          }));\n        }\n        break;\n\n      case 'inc_height':\n        if (act.target) {\n          const addHeight = Number(act.value ?? 10);\n          setStageElements(prev => prev.map(el => {\n            if (el.data === act.target || el.id === act.target || el.buttonId === act.target) {\n              return { ...el, height: el.height + addHeight };\n            }\n            return el;\n          }));\n        }\n        break;\n\n      case 'create_character':\n        if (act.target) {\n           const targetObj = (gameData.gameObjects || []).find(g => g.id === act.target);\n           if (targetObj) {\n             const newId = \`created_\${Date.now()}\`;\n             setStageElements(prev => [\n               ...prev,\n               { id: newId, type: 'obj', data: act.target, x: Number(act.x ?? 100), y: Number(act.y ?? 100), width: 100, height: 100, zIndex: 10 }\n             ]);\n           }\n        }\n        break;\n\n      case 'js':\n        console.log('Executing custom JS action:', act.code);\n        if (act.code) {\n          try {\n            const runUserCode = new Function(\n              'stageElements', 'setStageElements', \n              'activeSceneId', 'handleSwitchScene',\n              'events', 'setEvents',\n              'gameObjects', 'setGameObjects',\n              'layers', 'setLayers',\n              'activeLayerId', 'setActiveLayerId',\n              act.code\n            );\n            const customSetStageElements = (newVal) => {\n              if (typeof newVal === 'function') {\n                setStageElements(prev => {\n                  const updated = newVal(prev);\n                  return Array.isArray(updated) ? [...updated] : updated;\n                });\n              } else {\n                setStageElements(Array.isArray(newVal) ? [...newVal] : newVal);\n              }\n            };\n            runUserCode(\n              stageElementsRef.current, customSetStageElements,\n              activeSceneId, (sceneId) => {\n                setActiveSceneId(sceneId);\n              },\n              gameData.sceneEvents[activeSceneId] || [], () => {},\n              gameData.gameObjects || [], () => {},\n              gameData.layers || [], () => {},\n              '', () => {}\n            );\n          } catch (err) {\n            console.error("Custom JS Error:", err);\n          }\n        }\n        break;\n\n      case 'show_text':\n        if (act.value) {\n          const message = act.value;\n          const toastId = \`toast_\${Date.now()}\`;\n          setStageElements(prev => [\n            ...prev,\n            { id: toastId, type: 'btn', data: null, url: null, x: 220, y: 150, width: 200, height: 40, isToast: true, text: message }\n          ]);\n          setTimeout(() => {\n            setStageElements(prev => prev.filter(el => el.id !== toastId));\n          }, 3000);\n        }\n        break;\n\n      default:\n        console.log("Unhandled action:", act.type);\n    }\n  };\n\n  const handleButtonClick = (buttonId) => {\n    if (!buttonId) return;\n    const btnEl = stageElementsRef.current.find(e => e.id === buttonId);\n    const sceneEvents = gameData.sceneEvents[activeSceneId] || [];\n    sceneEvents.forEach(ev => {\n      const isPressed = ev.conditions?.some(cond => \n        (cond.type === 'pressed' || cond.type === 'pressed_time' || cond.type === 'double_tap' || cond.type === 'click') && \n        (cond.target === buttonId || (btnEl?.buttonId && cond.target === btnEl.buttonId) || (btnEl?.data && cond.target === btnEl.data))\n      );\n      if (isPressed) {\n        ev.actions?.forEach(act => executeAction(act));\n      }\n    });\n  };\n\n  useEffect(() => {\n    const sceneEvents = gameData.sceneEvents[activeSceneId] || [];\n    sceneEvents.forEach(ev => {\n      const hasSceneStart = ev.conditions?.some(cond => cond.type === 'scene_start');\n      if (hasSceneStart) {\n        ev.actions?.forEach(act => executeAction(act));\n      }\n    });\n\n    let lastTime = Date.now();\n    const timerValues = { scene_timer: 0 };\n\n    const interval = setInterval(() => {\n      const now = Date.now();\n      const dt = (now - lastTime) / 1000;\n      lastTime = now;\n      timerValues.scene_timer += dt;\n\n      const currentEvents = gameData.sceneEvents[activeSceneId] || [];\n      currentEvents.forEach(ev => {\n        let allConditionsMet = ev.conditions?.length > 0;\n\n        ev.conditions?.forEach(cond => {\n          if (!allConditionsMet) return;\n\n          if (cond.type === 'timer') {\n            const limit = Number(cond.value || 0);\n            if (timerValues.scene_timer < limit) {\n              allConditionsMet = false;\n            }\n          }\n\n          if (cond.type === 'collision') {\n            const target1 = cond.target;\n            const target2 = cond.target2;\n            if (target1 && target2) {\n              const el1 = stageElementsRef.current.find(el => el.data === target1 || el.id === target1);\n              const el2 = stageElementsRef.current.find(el => el.data === target2 || el.id === target2);\n              if (el1 && el2) {\n                const collides = !(\n                  el1.x + el1.width < el2.x ||\n                  el2.x + el2.width < el1.x ||\n                  el1.y + el1.height < el2.y ||\n                  el2.y + el2.height < el1.y\n                );\n                if (!collides) allConditionsMet = false;\n              } else {\n                allConditionsMet = false;\n              }\n            } else {\n              allConditionsMet = false;\n            }\n          }\n\n          if (cond.type === 'scene_start' || cond.type === 'pressed' || cond.type === 'pressed_time' || cond.type === 'double_tap') {\n            allConditionsMet = false;\n          }\n        });\n\n        if (allConditionsMet) {\n          ev.actions?.forEach(act => executeAction(act));\n        }\n      });\n    }, 200);\n\n    return () => clearInterval(interval);\n  }, [activeSceneId]);\n\n  return (\n    <div style={{ backgroundColor: '#0a0a0c', width: '100vw', height: '100vh', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>\n      <div \n        style={{ \n          position: 'relative', \n          width: \`\${VIRTUAL_WIDTH}px\`, \n          height: \`\${VIRTUAL_HEIGHT}px\`, \n          transform: \`scale(\${scale})\`, \n          transformOrigin: 'center', \n          backgroundColor: gameData.stageBgColor || '#000', \n          overflow: 'hidden', \n          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', \n          borderRadius: aspectRatio === 'portrait' ? '32px' : '12px', \n          border: aspectRatio === 'portrait' ? '12px solid #27272a' : '2px solid rgba(255,255,255,0.05)', \n        }}\n      >\n        {stageElements.map((el, i) => {\n           const isButton = el.type === 'btn';\n           const isObj = el.type === 'obj' || el.type === 'enemy';\n           const gameObject = isObj ? (gameData.gameObjects || []).find(g => g.id === el.data) : null;\n           const isText = gameObject?.type === 'text';\n           const bgUrl = el.url || (isObj ? (gameObject?.url || gameObject?.animations?.[0]) : el.data);\n           const firstAnim = gameObject?.animations?.[0];\n           const layers = gameData.layers || [];\n           const layerIdx = layers.findIndex(l => l.id === el.layerId);\n           const layerZ = layerIdx === -1 ? 10 : (layers.length - layerIdx) * 10;\n           const finalZ = isText ? layerZ + 2000 : layerZ;\n           const isInteractive = isButton || el.type === 'obj' || el.type === 'enemy';\n           return (\n             <div \n               key={el.id || i} \n               onClick={(e) => {\n                 if (isInteractive) {\n                   e.stopPropagation();\n                   handleButtonClick(el.id);\n                 }\n               }}\n               style={{ \n                 position: 'absolute', \n                 left: el.type === 'bg' ? 0 : el.x, \n                 top: el.type === 'bg' ? 0 : el.y, \n                 width: el.type === 'bg' ? '100%' : el.width, \n                 height: el.type === 'bg' ? '100%' : el.height, \n                 backgroundImage: (!isText && bgUrl) ? \`url(\${bgUrl})\` : undefined, \n                 backgroundSize: '100% 100%', \n                 backgroundRepeat: 'no-repeat', \n                 backgroundColor: (!bgUrl && el.type === 'btn') ? 'rgba(236,72,153,0.2)' : undefined, \n                 opacity: el.opacity !== undefined ? el.opacity : 1, \n                 transform: el.rotation ? \`rotate(\${el.rotation}deg)\` : undefined, \n                 cursor: isInteractive ? 'pointer' : 'default', \n                 pointerEvents: isInteractive ? 'auto' : 'none', \n                 zIndex: el.type === 'bg' ? 0 : finalZ \n               }}\n             >\n               {el.type === 'btn' && <button style={{width:'100%',height:'100%',background:'transparent',border:'none', cursor: 'pointer', color: 'white', fontWeight: 'bold'}}>{el.text}</button>}\n               {el.type === 'obj' && gameObject?.type === 'text' ? (\n                 <div \n                   style={{\n                     width: '100%', \n                     height: '100%', \n                     display: 'flex', \n                     alignItems: 'center', \n                     justifyContent: gameObject.align === 'left' ? 'flex-start' : gameObject.align === 'right' ? 'flex-end' : 'center', \n                     textAlign: gameObject.align ?? 'center', \n                     fontSize: \`\${gameObject.fontSize ?? 24}px\`, \n                     color: gameObject.color ?? '#ffffff', \n                     fontFamily: gameObject.fontFamily ?? 'Inter, sans-serif', \n                     fontWeight: gameObject.bold !== false ? 'bold' : 'normal', \n                     fontStyle: gameObject.italic ? 'italic' : 'normal', \n                     lineHeight: 1.2, \n                     wordBreak: 'break-word', \n                     overflow: 'visible', \n                     padding: '4px' \n                   }}\n                 >\n                   {gameObject.textContent ?? gameObject.name ?? 'Text'}\n                 </div>\n               ) : el.type === 'obj' && firstAnim && firstAnim.frames && firstAnim.frames.length > 0 ? (\n                 <AnimatedSprite frames={firstAnim.frames} fps={firstAnim.fps || 24} speed={firstAnim.speed || 1} width={el.width} height={el.height} />\n               ) : el.type === 'obj' && (!firstAnim || !firstAnim.frames || firstAnim.frames.length === 0) ? (\n                 <div style={{ width: '100%', height: '100%', backgroundColor: 'rgba(6,182,212,0.2)', border: '1px solid rgba(6,182,212,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#22d3ee', fontWeight: 'bold', padding: '4px', textAlign: 'center' }}>\n                   {gameObject?.name || 'Object'}\n                 </div>\n               ) : null}\n               {el.isToast && (\n                 <div style={{ width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.95)', color: '#facc15', border: '1px solid rgba(234,179,8,0.8)', borderRadius: '4px', padding: '4px 12px', fontSize: '12px', fontFamily: 'monospace', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', textAlign: 'center' }}>\n                   {el.text}\n                 </div>\n               )}\n             </div>\n           );\n        })}\n      </div>\n      {showRotationPrompt && (\n        <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(10,10,12,0.95)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'Inter, sans-serif', padding: '24px', textAlign: 'center' }}>\n          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔄</div>\n          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>Please Rotate Your Device</h2>\n          <p style={{ color: '#a1a1aa', fontSize: '14px', maxWidth: '300px', marginBottom: '24px' }}>This game is designed for {aspectRatio} screen layout. Please rotate your screen for the best experience.</p>\n          <button onClick={() => setShowRotationPrompt(false)} style={{ backgroundColor: '#fff', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>Play Anyway</button>\n        </div>\n      )}\n    </div>\n  );\n}`
+        content: `import React, { useState, useEffect, useRef } from 'react';
+import gameData from './game-data.json';
+
+// Global shared AudioContext to handle gameplay audio and escape browser autoplay constraints
+let globalAudioCtx: any = null;
+const decodedBufferCache: Record<string, AudioBuffer> = {};
+
+const getSharedAudioContext = (): AudioContext => {
+  if (typeof window === 'undefined') return null as any;
+  if (!globalAudioCtx) {
+    globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  if (globalAudioCtx.state === 'suspended') {
+    globalAudioCtx.resume().catch(() => {});
+  }
+  return globalAudioCtx;
+};
+
+const playSoundWithSharedContext = async (audioSrc: string) => {
+  if (!audioSrc) return;
+  try {
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+
+    if (decodedBufferCache[audioSrc]) {
+      const source = ctx.createBufferSource();
+      source.buffer = decodedBufferCache[audioSrc];
+      source.connect(ctx.destination);
+      source.start(0);
+      return;
+    }
+
+    const response = await fetch(audioSrc);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    decodedBufferCache[audioSrc] = audioBuffer;
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  } catch (err) {
+    console.warn("Audio playback failed:", err);
+    try {
+      const audio = new Audio(audioSrc);
+      audio.play().catch(() => {});
+    } catch (e) {}
+  }
+};
+
+export default function GameRunner() {
+  const [activeSceneId, setActiveSceneId] = useState(gameData.activeSceneId || 'scene_1');
+  const [stageElements, setStageElements] = useState([]);
+  const [windowSize, setWindowSize] = useState({ width: typeof window !== 'undefined' ? window.innerWidth : 640, height: typeof window !== 'undefined' ? window.innerHeight : 360 });
+  const [showRotationPrompt, setShowRotationPrompt] = useState(false);
+
+  const aspectRatio = gameData.aspectRatio || 'landscape';
+  const VIRTUAL_WIDTH = aspectRatio === 'landscape' ? 640 : 360;
+  const VIRTUAL_HEIGHT = aspectRatio === 'landscape' ? 360 : 640;
+
+  useEffect(() => {
+    const handleResize = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      setWindowSize({ width: w, height: h });
+      if (aspectRatio === 'landscape' && w < h) setShowRotationPrompt(true);
+      else if (aspectRatio === 'portrait' && w > h) setShowRotationPrompt(true);
+      else setShowRotationPrompt(false);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [aspectRatio]);
+
+  const scale = Math.min(windowSize.width / VIRTUAL_WIDTH, windowSize.height / VIRTUAL_HEIGHT);
+  const stageElementsRef = useRef(stageElements);
+  useEffect(() => { stageElementsRef.current = stageElements; }, [stageElements]);
+
+  useEffect(() => {
+    const sceneEls = (gameData.sceneElements && gameData.sceneElements[activeSceneId]) || [];
+    setStageElements(sceneEls);
+  }, [activeSceneId]);
+
+  const executeAction = (act) => {
+    switch (act.type) {
+      case 'goto_scene':
+        if (act.target && (gameData.scenes || []).some(s => s.id === act.target)) {
+          setActiveSceneId(act.target);
+        }
+        break;
+      case 'change_opacity':
+        if (act.target) {
+          const val = Number(act.value ?? 50) / 100;
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, opacity: val } : el));
+        }
+        break;
+      case 'destroy':
+        if (act.target) {
+          setStageElements(prev => prev.filter(el => el.id !== act.target && el.data !== act.target && el.buttonId !== act.target));
+        }
+        break;
+      case 'play_sound':
+        if (act.value) {
+          const sound = (gameData.projectSounds || []).find(s => s.id === act.value || s.name === act.value);
+          const audioSrc = sound?.url || sound?.dataUrl || act.value;
+          if (audioSrc) {
+            playSoundWithSharedContext(audioSrc);
+          }
+        }
+        break;
+      case 'play_animation':
+        if (act.target) {
+          const videoId = act.target;
+          const fitToScreen = act.fitToScreen || false;
+          const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === videoId);
+          if (existing) {
+            const elVid = document.getElementById(\`video_player_\${existing.id}\`) as HTMLVideoElement;
+            if (elVid) { elVid.currentTime = 0; elVid.play().catch(() => {}); }
+          } else {
+            const elId = \`vid_\${Date.now()}\`;
+            setStageElements(prev => [...prev, { id: elId, type: 'video', videoId, fitToScreen, x: fitToScreen ? 0 : 100, y: fitToScreen ? 0 : 50, width: fitToScreen ? VIRTUAL_WIDTH : 300, height: fitToScreen ? VIRTUAL_HEIGHT : 200, layerId: '' }]);
+            setTimeout(() => {
+              const elVid = document.getElementById(\`video_player_\${elId}\`) as HTMLVideoElement;
+              if (elVid) { elVid.currentTime = 0; elVid.play().catch(() => {}); }
+            }, 100);
+          }
+        }
+        break;
+      case 'stop_animation':
+        if (act.target) {
+          const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === act.target);
+          if (existing) {
+            const elVid = document.getElementById(\`video_player_\${existing.id}\`) as HTMLVideoElement;
+            if (elVid) elVid.pause();
+          }
+        }
+        break;
+      case 'remove_animation':
+        if (act.target) {
+          setStageElements(prev => prev.filter(el => !(el.type === 'video' && el.videoId === act.target)));
+        }
+        break;
+      case 'move_to':
+        if (act.target) {
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, x: Number(act.x ?? 100), y: Number(act.y ?? 100) } : el));
+        }
+        break;
+      case 'rotate':
+        if (act.target) {
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, rotation: (el.rotation || 0) + Number(act.value ?? 15) } : el));
+        }
+        break;
+      case 'show_text':
+        if (act.value) {
+          const toastId = \`toast_\${Date.now()}\`;
+          setStageElements(prev => [...prev, { id: toastId, type: 'btn', x: 220, y: 150, width: 200, height: 40, isToast: true, text: act.value }]);
+          setTimeout(() => setStageElements(prev => prev.filter(el => el.id !== toastId)), 3000);
+        }
+        break;
+      case 'move_straight':
+      case 'move_zigzag':
+        if (act.target) {
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, x: el.x + 80, y: el.y + (act.type === 'move_zigzag' ? 30 : 0) } : el));
+        }
+        break;
+      case 'change_animation':
+        if (act.target && act.value !== undefined) {
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, activeAnimationIndex: Number(act.value) } : el));
+        }
+        break;
+    }
+  };
+
+  const lastTapRef = useRef({ time: 0, target: '' });
+  const handleButtonClick = (buttonId) => {
+    const now = Date.now();
+    const isDoubleTap = now - lastTapRef.current.time < 300 && lastTapRef.current.target === buttonId;
+    lastTapRef.current = { time: now, target: buttonId };
+
+    const btnEl = stageElementsRef.current.find(e => e.id === buttonId);
+    const sceneEvents = (gameData.sceneEvents && gameData.sceneEvents[activeSceneId]) || [];
+    sceneEvents.forEach(ev => {
+      const isPressed = ev.conditions?.some(cond => {
+        if (cond.target !== buttonId && cond.target !== btnEl?.buttonId && cond.target !== btnEl?.data) return false;
+        if (isDoubleTap && cond.type === 'double_tap') return true;
+        return cond.type === 'click' || cond.type === 'pressed';
+      });
+      if (isPressed) ev.actions?.forEach(act => executeAction(act));
+    });
+  };
+
+  useEffect(() => {
+    const sceneEvents = (gameData.sceneEvents && gameData.sceneEvents[activeSceneId]) || [];
+    sceneEvents.forEach(ev => {
+      if (ev.conditions?.some(cond => cond.type === 'scene_start')) ev.actions?.forEach(act => executeAction(act));
+    });
+    const interval = setInterval(() => {
+      sceneEvents.forEach(ev => {
+        const allMet = ev.conditions?.every(cond => {
+          if (cond.type === 'collision') {
+            const el1 = stageElementsRef.current.find(el => el.id === cond.target || el.data === cond.target);
+            const el2 = stageElementsRef.current.find(el => el.id === cond.target2 || el.data === cond.target2);
+            if (!el1 || !el2) return false;
+            return !(el1.x + el1.width < el2.x || el2.x + el2.width < el1.x || el1.y + el1.height < el2.y || el2.y + el2.height < el1.y);
+          }
+          return false;
+        });
+        if (allMet && ev.conditions?.some(c => c.type === 'collision')) ev.actions?.forEach(act => executeAction(act));
+      });
+    }, 200);
+    return () => clearInterval(interval);
+  }, [activeSceneId]);
+
+  return (
+    <div style={{ backgroundColor: '#000', width: '100vw', height: '100vh', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {gameData.customCSS && <style>{gameData.customCSS}</style>}
+      <div style={{ position: 'relative', width: \`\${VIRTUAL_WIDTH}px\`, height: \`\${VIRTUAL_HEIGHT}px\`, transform: \`scale(\${scale})\`, backgroundColor: gameData.stageBgColor || '#000', overflow: 'hidden' }}>
+        {stageElements.map((el, i) => {
+          const isInteractive = el.type === 'btn' || el.type === 'obj';
+          const gameObject = (gameData.gameObjects || []).find(g => g.id === el.data);
+          const bgUrl = el.url || gameObject?.url || gameObject?.animations?.[el.activeAnimationIndex || 0] || gameObject?.animations?.[0] || el.data;
+          return (
+            <div key={el.id || i} onClick={(e) => { if (isInteractive) { e.stopPropagation(); handleButtonClick(el.id); } }} style={{ position: 'absolute', left: el.type === 'bg' ? 0 : el.x, top: el.type === 'bg' ? 0 : el.y, width: el.type === 'bg' ? '100%' : el.width, height: el.type === 'bg' ? '100%' : el.height, backgroundImage: (el.type !== 'video' && bgUrl) ? \`url(\${bgUrl})\` : undefined, backgroundSize: '100% 100%', opacity: el.opacity ?? 1, transform: el.rotation ? \`rotate(\${el.rotation}deg)\` : undefined, zIndex: el.type === 'bg' ? 0 : 10, cursor: isInteractive ? 'pointer' : 'default' }}>
+              {el.type === 'btn' && <button style={{ width: '100%', height: '100%', background: 'transparent', border: 'none', color: 'white', fontWeight: 'bold' }}>{el.text}</button>}
+              {el.type === 'video' && <video id={\`video_player_\${el.id}\`} src={(gameData.projectVideos || []).find(v => v.id === el.videoId)?.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} playsInline />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}`
       },
       {
         path: 'README.md',
@@ -2385,6 +2681,8 @@ app.post('/api/github/deploy', async (req, res) => {
         }, null, 2)
       }
     ];
+
+    files.push(...extraPushedFiles);
     
     if (hasWorkflowScope) {
       files.push({
@@ -2399,59 +2697,7 @@ app.post('/api/github/deploy', async (req, res) => {
     let treeItems = [];
     let finalCommitSha = latestCommitSha;
     
-    if (latestCommitSha) {
-      addLog(`Using GraphQL createCommitOnBranch to trigger webhooks. Head OID: ${latestCommitSha}`);
-      
-      const graphqlQuery = {
-        query: `
-          mutation ($input: CreateCommitOnBranchInput!) {
-            createCommitOnBranch(input: $input) {
-              commit {
-                oid
-                url
-              }
-            }
-          }
-        `,
-        variables: {
-          input: {
-            branch: {
-              repositoryNameWithOwner: repoFullName,
-              branchName: defaultBranch
-            },
-            message: {
-              headline: commitMessage || 'Deploy game from Animato Studio'
-            },
-            expectedHeadOid: latestCommitSha,
-            fileChanges: {
-              additions: files.map(f => ({
-                path: f.path,
-                contents: Buffer.from(f.content).toString('base64')
-              })),
-              deletions: []
-            }
-          }
-        }
-      };
-
-      const gqlRes = await fetch('https://api.github.com/graphql', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(graphqlQuery)
-      });
-      addLog(`[GraphQL Commit] Response status: ${gqlRes.status}`);
-      
-      const gqlData = await gqlRes.json();
-      if (gqlData.errors) {
-        addLog(`GraphQL Error: ${JSON.stringify(gqlData.errors)}`, 'error');
-        throw new Error(gqlData.errors[0]?.message || 'GraphQL Error during createCommitOnBranch');
-      }
-      
-      finalCommitSha = gqlData.data?.createCommitOnBranch?.commit?.oid;
-      addLog(`Commit successful via GraphQL: ${finalCommitSha}`);
-      
-    } else {
-      addLog(`Repo appears empty. Using REST API fallback.`);
+    addLog(`Using REST API for commit.`);
       
       for (const file of files) {
         addLog(`Creating blob for ${file.path}...`);
@@ -2462,11 +2708,21 @@ app.post('/api/github/deploy', async (req, res) => {
             method: 'POST',
             headers,
             body: JSON.stringify({
-              content: Buffer.from(file.content).toString('base64'),
+              content: file.isBase64 ? file.content : Buffer.from(file.content).toString('base64'),
               encoding: 'base64'
             })
           });
-          const blobData = await blobRes.json();
+          
+          let blobData;
+          const blobContentType = blobRes.headers.get("content-type");
+          if (blobContentType && blobContentType.includes("application/json")) {
+            blobData = await blobRes.json();
+          } else {
+            const text = await blobRes.text();
+            addLog(`Blob creation expected JSON but got ${blobRes.status}: ${text.substring(0, 200)}`, 'error');
+            throw new Error(`Blob creation failed: ${blobRes.status}`);
+          }
+          
           if (blobRes.ok) {
             blobSha = blobData.sha;
             addLog(`Successfully created blob for ${file.path}: ${blobSha}`);
@@ -2498,8 +2754,8 @@ app.post('/api/github/deploy', async (req, res) => {
       addLog(`Creating tree for: ${owner}/${repoNamePart} | Base Tree: ${baseTreeSha || 'None (Initial)'}`);
       
       let treeData: any;
-      let attempts = 0;
-      while (attempts < 5) {
+      let treeAttempts = 0;
+      while (treeAttempts < 5) {
         const treeBody: any = { tree: treeItems };
         if (baseTreeSha && !isRepoEmpty) {
           treeBody.base_tree = baseTreeSha;
@@ -2533,9 +2789,9 @@ app.post('/api/github/deploy', async (req, res) => {
            }
         }
 
-        addLog(`Tree creation attempt ${attempts + 1} failed for ${owner}/${repoNamePart} on branch ${defaultBranch}: ${JSON.stringify(treeData)}. Retrying...`, 'warn');
+        addLog(`Tree creation attempt ${treeAttempts + 1} failed for ${owner}/${repoNamePart} on branch ${defaultBranch}: ${JSON.stringify(treeData)}. Retrying...`, 'warn');
         await new Promise(resolve => setTimeout(resolve, 3000));
-        attempts++;
+        treeAttempts++;
       }
       
       if (!treeData || !treeData.sha) {
@@ -2602,8 +2858,7 @@ app.post('/api/github/deploy', async (req, res) => {
       }
       
       finalCommitSha = commitData.sha;
-    }
-
+    
     // 1.5. Ensure GitHub Pages has been configured to use GitHub Actions - run AFTER commit/push is successful
     addLog(`DEBUG: Proceeding to Pages check. hasWorkflowScope=${hasWorkflowScope}`);
     if (hasWorkflowScope) {
@@ -2612,18 +2867,53 @@ app.post('/api/github/deploy', async (req, res) => {
         addLog(`[Pages Deploy] Enabling Pages for: ${owner}/${repoNamePart} (post-commit)...`);
         addLog(`DEBUG: Using pagesUrl: https://api.github.com/repos/${owner}/${repoNamePart}/pages`);
         const pagesUrl = `https://api.github.com/repos/${owner}/${repoNamePart}/pages`;
-        const getPagesRes = await fetch(pagesUrl, { headers, cache: 'no-store' });
+        
+        // Timeout for Pages check GET request
+        const pagesController = new AbortController();
+        const pagesTimeoutId = setTimeout(() => {
+          addLog(`[Pages Config GET] Timeout reached, aborting request...`, 'warn');
+          pagesController.abort();
+        }, 5000);
+        
+        let getPagesRes;
+        try {
+          addLog(`[Pages Config GET] Querying current configuration...`);
+          getPagesRes = await fetch(pagesUrl, { headers, cache: 'no-store', signal: pagesController.signal });
+          clearTimeout(pagesTimeoutId);
+        } catch (pagesErr: any) {
+          clearTimeout(pagesTimeoutId);
+          addLog(`Failed to fetch Pages config: ${pagesErr.message}`, 'warn');
+          throw pagesErr;
+        }
+        
         addLog(`[Pages Config GET] Response status: ${getPagesRes.status}`);
         
         if (getPagesRes.status === 404) {
           addLog('GitHub Pages not configured yet. Creating Pages site with "workflow" build type...', 'info');
-          const postPagesRes = await fetch(pagesUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ build_type: 'workflow', source: { branch: defaultBranch, path: '/' } })
-          });
+          
+          const postPagesController = new AbortController();
+          const postPagesTimeoutId = setTimeout(() => {
+            addLog(`[Pages Config POST] Timeout reached, aborting request...`, 'warn');
+            postPagesController.abort();
+          }, 5000);
+          
+          let postPagesRes;
+          try {
+            postPagesRes = await fetch(pagesUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ build_type: 'workflow', source: { branch: defaultBranch, path: '/' } }),
+              signal: postPagesController.signal
+            });
+            clearTimeout(postPagesTimeoutId);
+          } catch (postErr: any) {
+            clearTimeout(postPagesTimeoutId);
+            addLog(`Failed to post Pages config: ${postErr.message}`, 'warn');
+            throw postErr;
+          }
+          
           addLog(`[Pages Config POST] Response status: ${postPagesRes.status}`);
-          const postPagesData = await postPagesRes.json();
+          const postPagesData = await postPagesRes.json().catch(() => ({}));
           if (postPagesRes.ok) {
             addLog('Successfully created GitHub Pages site with "workflow" build type.');
             addLog(`Pages enabled for ${owner}/${repoNamePart}`);
@@ -2631,17 +2921,34 @@ app.post('/api/github/deploy', async (req, res) => {
             addLog(`Failed to create GitHub Pages site: ${postPagesData.message || 'Unknown error'}`, 'warn');
           }
         } else if (getPagesRes.ok) {
-          const pagesConfig = await getPagesRes.json();
+          const pagesConfig = await getPagesRes.json().catch(() => ({}));
           addLog(`Current Pages configuration: build_type=${pagesConfig.build_type}`);
           if (pagesConfig.build_type === 'legacy') {
             addLog('Pages is set to "legacy" (branch-based). Updating Pages configuration to "workflow"...', 'info');
-            const putPagesRes = await fetch(pagesUrl, {
-              method: 'PUT',
-              headers,
-              body: JSON.stringify({ build_type: 'workflow', source: { branch: defaultBranch, path: '/' } })
-            });
+            
+            const putPagesController = new AbortController();
+            const putPagesTimeoutId = setTimeout(() => {
+              addLog(`[Pages Config PUT] Timeout reached, aborting request...`, 'warn');
+              putPagesController.abort();
+            }, 5000);
+            
+            let putPagesRes;
+            try {
+              putPagesRes = await fetch(pagesUrl, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ build_type: 'workflow', source: { branch: defaultBranch, path: '/' } }),
+                signal: putPagesController.signal
+              });
+              clearTimeout(putPagesTimeoutId);
+            } catch (putErr: any) {
+              clearTimeout(putPagesTimeoutId);
+              addLog(`Failed to put Pages config: ${putErr.message}`, 'warn');
+              throw putErr;
+            }
+            
             addLog(`[Pages Config PUT] Response status: ${putPagesRes.status}`);
-            const putPagesData = await putPagesRes.json();
+            const putPagesData = await putPagesRes.json().catch(() => ({}));
             if (putPagesRes.ok) {
               addLog('Successfully updated GitHub Pages configuration to "workflow".');
               addLog(`Pages enabled for ${owner}/${repoNamePart}`);
@@ -2655,64 +2962,138 @@ app.post('/api/github/deploy', async (req, res) => {
           
           // Check for and cancel any active/queued workflow runs to prevent overlapping Pages deployment errors
           try {
-            addLog(`Checking for in-progress workflow runs for ${owner}/${repoNamePart} to prevent concurrent deployment errors...`);
+            addLog(`Checking for in-progress workflow runs for "${owner}/${repoNamePart}" to prevent concurrent deployment errors...`);
             const checkUrl = `https://api.github.com/repos/${owner}/${repoNamePart}/actions/runs?status=in_progress`;
-            const checkRes = await fetch(checkUrl, { headers, cache: 'no-store' });
-            if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              if (checkData.workflow_runs && checkData.workflow_runs.length > 0) {
-                for (const run of checkData.workflow_runs) {
-                  const isPagesRelated = run.name?.toLowerCase().includes('pages') || run.name?.toLowerCase().includes('deploy') || run.path?.endsWith('deploy.yml');
-                  if (isPagesRelated) {
-                    addLog(`Found active in-progress deployment run (ID: ${run.id}, Workflow: "${run.name}"). Cancelling it to prevent overlap...`, 'info');
-                    const cancelRes = await fetch(`https://api.github.com/repos/${owner}/${repoNamePart}/actions/runs/${run.id}/cancel`, {
-                      method: 'POST',
-                      headers
-                    });
-                    if (cancelRes.ok) {
-                      addLog(`Successfully requested cancellation of run ${run.id}.`);
-                    } else {
-                      const cancelData = await cancelRes.json().catch(() => ({}));
-                      addLog(`Note requesting cancellation: ${cancelData.message || cancelRes.statusText}`, 'info');
+            addLog(`[Workflow Check] API URL: ${checkUrl}`);
+            
+            // Set a strict 7-second timeout for this check to prevent hanging
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+              addLog(`[Workflow Check] Timeout of 7000ms reached, aborting check fetch...`, 'warn');
+              controller.abort();
+            }, 7000);
+            
+            try {
+              addLog(`[Workflow Check] Starting fetch from GitHub...`);
+              const checkRes = await fetch(checkUrl, { 
+                headers, 
+                cache: 'no-store', 
+                signal: controller.signal 
+              });
+              clearTimeout(timeoutId);
+              addLog(`[Workflow Check] Response status: ${checkRes.status}`);
+              
+              if (checkRes.ok) {
+                const checkData = await checkRes.json().catch(() => ({}));
+                addLog(`[Workflow Check] Successfully parsed response. Found ${checkData?.workflow_runs?.length || 0} runs.`);
+                if (checkData && Array.isArray(checkData.workflow_runs) && checkData.workflow_runs.length > 0) {
+                  for (const run of checkData.workflow_runs) {
+                    if (!run || !run.id) continue;
+                    const nameLower = (run.name || '').toLowerCase();
+                    const pathLower = (run.path || '').toLowerCase();
+                    const isPagesRelated = nameLower.includes('pages') || nameLower.includes('deploy') || pathLower.includes('deploy.yml');
+                    if (isPagesRelated) {
+                      addLog(`Found active in-progress deployment run (ID: ${run.id}, Workflow: "${run.name}"). Requesting cancellation to prevent overlap...`, 'info');
+                      
+                      const cancelController = new AbortController();
+                      const cancelTimeoutId = setTimeout(() => {
+                        addLog(`[Workflow Cancel] Timeout reached, aborting cancellation of run ${run.id}...`, 'warn');
+                        cancelController.abort();
+                      }, 5000);
+                      try {
+                        const cancelRes = await fetch(`https://api.github.com/repos/${owner}/${repoNamePart}/actions/runs/${run.id}/cancel`, {
+                          method: 'POST',
+                          headers,
+                          signal: cancelController.signal
+                        });
+                        clearTimeout(cancelTimeoutId);
+                        if (cancelRes.ok) {
+                          addLog(`Successfully requested cancellation of run ${run.id}.`);
+                        } else {
+                          const cancelData = await cancelRes.json().catch(() => ({}));
+                          addLog(`Note requesting cancellation: ${cancelData.message || cancelRes.statusText}`, 'info');
+                        }
+                      } catch (cancelErr: any) {
+                        clearTimeout(cancelTimeoutId);
+                        addLog(`Note cancellation request: ${cancelErr.message}`, 'info');
+                      }
                     }
                   }
+                  // Give GitHub a moment to register cancellation
+                  addLog(`Waiting 3s for GitHub to process cancellations...`);
+                  await new Promise(resolve => setTimeout(resolve, 3000));
+                } else {
+                  addLog(`No conflicting active workflow runs found.`);
                 }
-                // Give GitHub a moment to register cancellation
-                await new Promise(resolve => setTimeout(resolve, 3000));
               } else {
-                addLog(`No conflicting active workflow runs found.`);
+                addLog(`Workflow runs check response status: ${checkRes.status}. Continuing anyway...`, 'warn');
               }
+            } catch (fetchErr: any) {
+              clearTimeout(timeoutId);
+              addLog(`Workflow runs check fetch note: ${fetchErr.message}. Continuing anyway...`, 'info');
             }
           } catch (checkErr: any) {
-            addLog(`Note checking/cancelling in-progress workflow runs: ${checkErr.message}`, 'info');
+            addLog(`Note checking/cancelling in-progress workflow runs: ${checkErr.message}. Continuing anyway...`, 'info');
           }
 
           // Proactively trigger the workflow run immediately via workflow_dispatch API
           addLog(`[Pages Deploy] Proactively triggering deployment workflow (deploy.yml) for ${owner}/${repoNamePart} via workflow_dispatch...`);
           addLog(`DEBUG: Using dispatchUrl: https://api.github.com/repos/${owner}/${repoNamePart}/actions/workflows/deploy.yml/dispatches`);
           const dispatchUrl = `https://api.github.com/repos/${owner}/${repoNamePart}/actions/workflows/deploy.yml/dispatches`;
-          const dispatchRes = await fetch(dispatchUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ ref: defaultBranch })
-          });
-          if (dispatchRes.ok) {
-            addLog('Successfully triggered Pages build/deploy workflow via workflow_dispatch.');
-          } else {
-            const dispatchData = await dispatchRes.json().catch(() => ({}));
-            addLog(`Workflow dispatch status / note: ${dispatchData.message || 'Already queued by push event'}`, 'info');
+          
+          const dispatchController = new AbortController();
+          const dispatchTimeoutId = setTimeout(() => {
+            addLog(`[Workflow Dispatch] Timeout of 6000ms reached, aborting dispatch fetch...`, 'warn');
+            dispatchController.abort();
+          }, 6000);
+          try {
+            addLog(`[Workflow Dispatch] Dispatching to GitHub...`);
+            const dispatchRes = await fetch(dispatchUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ ref: defaultBranch }),
+              signal: dispatchController.signal
+            });
+            clearTimeout(dispatchTimeoutId);
+            addLog(`[Workflow Dispatch] Response status: ${dispatchRes.status}`);
+            
+            if (dispatchRes.ok) {
+              addLog('Successfully triggered Pages build/deploy workflow via workflow_dispatch.');
+            } else {
+              const dispatchData = await dispatchRes.json().catch(() => ({}));
+              addLog(`Workflow dispatch status / note: ${dispatchData.message || 'Already queued by push event'}`, 'info');
+            }
+          } catch (dispatchErr: any) {
+            clearTimeout(dispatchTimeoutId);
+            addLog(`Workflow dispatch fetch note: ${dispatchErr.message}`, 'info');
           }
           
           // Log active/pending workflow runs to provide clear visibility to the user
           try {
             const runsUrl = `https://api.github.com/repos/${owner}/${repoNamePart}/actions/runs?event=push&per_page=1`;
-            const runsRes = await fetch(runsUrl, { headers });
-            if (runsRes.ok) {
-              const runsData = await runsRes.json();
-              if (runsData.workflow_runs && runsData.workflow_runs.length > 0) {
-                const run = runsData.workflow_runs[0];
-                addLog(`Detected active GitHub Actions Run: ID=${run.id}, Status=${run.status}, Conclusion=${run.conclusion || 'pending'}`);
+            const runsController = new AbortController();
+            const runsTimeoutId = setTimeout(() => {
+              addLog(`[Workflow Runs Log] Timeout reached, aborting query...`, 'warn');
+              runsController.abort();
+            }, 4000);
+            try {
+              addLog(`[Workflow Runs Log] Querying active push runs...`);
+              const runsRes = await fetch(runsUrl, { headers, signal: runsController.signal });
+              clearTimeout(runsTimeoutId);
+              addLog(`[Workflow Runs Log] Response status: ${runsRes.status}`);
+              
+              if (runsRes.ok) {
+                const runsData = await runsRes.json().catch(() => ({}));
+                if (runsData && runsData.workflow_runs && runsData.workflow_runs.length > 0) {
+                  const run = runsData.workflow_runs[0];
+                  if (run) {
+                    addLog(`Detected active GitHub Actions Run: ID=${run.id}, Status=${run.status}, Conclusion=${run.conclusion || 'pending'}`);
+                  }
+                }
               }
+            } catch (runsErr: any) {
+              clearTimeout(runsTimeoutId);
+              addLog(`Note querying workflow runs fetch: ${runsErr.message}`, 'info');
             }
           } catch (runErr: any) {
             addLog(`Note querying workflow runs: ${runErr.message}`, 'info');
@@ -4136,12 +4517,17 @@ app.get(["/api/store/download/unified", "/api/store/download/unified/:filename"]
 
     try {
       const zip = await JSZip.loadAsync(binaryBuffer);
-      const innerFiles = Object.keys(zip.files);
-      if (innerFiles.length > 0) {
-        const originalFileName = innerFiles[0];
-        const uint8 = await zip.files[originalFileName].async("uint8array");
-        finalBuffer = Buffer.from(uint8);
-        finalFileName = filenameParamVal || originalFileName;
+      if (zip && zip.files) {
+        const innerFiles = Object.keys(zip.files);
+        if (innerFiles.length > 0) {
+          const originalFileName = innerFiles[0];
+          const fileInZip = zip.files[originalFileName];
+          if (fileInZip) {
+            const uint8 = await fileInZip.async("uint8array");
+            finalBuffer = Buffer.from(uint8);
+            finalFileName = filenameParamVal || originalFileName;
+          }
+        }
       }
     } catch (zipErr) {
       console.warn("[Unified Download] Failed to treat as ZIP or extract. Serving raw ZIP buffer directly.", zipErr);

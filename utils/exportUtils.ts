@@ -1,21 +1,108 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { blobUrlToBase64 } from './storage';
+import { get as getIDB } from 'idb-keyval';
 
-export const processGameDataAssets = async (gameData: any): Promise<any> => {
+export const processGameDataAssets = async (gameData: any, zip?: JSZip): Promise<any> => {
   if (!gameData) return gameData;
   
-  // Clone to avoid side effects in the editor state
   const data = JSON.parse(JSON.stringify(gameData));
   
+  const stats = {
+    videos: { found: 0, copied: 0 },
+    audio: { found: 0, copied: 0 },
+    images: { found: 0, copied: 0 }
+  };
+
+  const getAssetData = async (url: string): Promise<{ data: Uint8Array, mimeType: string, base64: string } | null> => {
+    try {
+      if (url.startsWith('blob:') || url.startsWith('http')) {
+        const resp = await fetch(url);
+        const blob = await resp.blob();
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        
+        // Convert to base64 for fallback
+        let binary = '';
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const b64 = btoa(binary);
+
+        return {
+          data: bytes,
+          mimeType: blob.type,
+          base64: `data:${blob.type};base64,${b64}`
+        };
+      } else if (url.startsWith('data:')) {
+        const parts = url.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/octet-stream';
+        const b64 = parts[1];
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return { data: bytes, mimeType: mime, base64: url };
+      }
+      return null;
+    } catch (e) {
+      console.error("Failed to get asset data for", url, e);
+      return null;
+    }
+  };
+
+  const saveAsset = async (url: string, folder: string, prefix: string): Promise<string> => {
+    if (!url) return url;
+    
+    // If it's already a relative path, skip
+    if (!url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('local_')) {
+      return url;
+    }
+
+    let actualUrl = url;
+    if (url.startsWith('local_sound_ref:')) {
+      const id = url.replace('local_sound_ref:', '');
+      actualUrl = await getIDB(`game_sound_${id}`) || '';
+    } else if (url.startsWith('local_video_ref:')) {
+      const id = url.replace('local_video_ref:', '');
+      actualUrl = await getIDB(`game_video_${id}`) || '';
+    }
+
+    if (!actualUrl) return url;
+
+    const asset = await getAssetData(actualUrl);
+    if (asset) {
+      if (zip) {
+        const ext = asset.mimeType.split('/')[1]?.split(';')[0] || 'bin';
+        const fileName = `${prefix}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
+        const path = `assets/${folder}/${fileName}`;
+        zip.file(path, asset.data);
+        
+        if (folder === 'videos') stats.videos.copied++;
+        if (folder === 'audio') stats.audio.copied++;
+        if (folder === 'images') stats.images.copied++;
+        
+        return `./${path}`;
+      } else {
+        // Fallback to base64 if no zip provided (e.g. for GitHub/Vercel deployment)
+        if (folder === 'videos') stats.videos.copied++;
+        if (folder === 'audio') stats.audio.copied++;
+        if (folder === 'images') stats.images.copied++;
+        return asset.base64;
+      }
+    }
+    return url;
+  };
+
   // 1. Process environments (backgrounds)
   if (Array.isArray(data.environments)) {
     for (const env of data.environments) {
-      if (env.url && env.url.startsWith('blob:')) {
-        env.url = await blobUrlToBase64(env.url);
+      if (env.url) {
+        stats.images.found++;
+        env.url = await saveAsset(env.url, 'images', 'bg');
       }
-      if (env.thumbnail && env.thumbnail.startsWith('blob:')) {
-        env.thumbnail = await blobUrlToBase64(env.thumbnail);
+      if (env.thumbnail) {
+        env.thumbnail = await saveAsset(env.thumbnail, 'images', 'thumb');
       }
     }
   }
@@ -23,11 +110,12 @@ export const processGameDataAssets = async (gameData: any): Promise<any> => {
   // 2. Process uiButtons
   if (Array.isArray(data.uiButtons)) {
     for (const btn of data.uiButtons) {
-      if (btn.url && btn.url.startsWith('blob:')) {
-        btn.url = await blobUrlToBase64(btn.url);
+      if (btn.url) {
+        stats.images.found++;
+        btn.url = await saveAsset(btn.url, 'images', 'btn');
       }
-      if (btn.data && typeof btn.data === 'string' && btn.data.startsWith('blob:')) {
-        btn.data = await blobUrlToBase64(btn.data);
+      if (btn.data && typeof btn.data === 'string') {
+        btn.data = await saveAsset(btn.data, 'images', 'btn_data');
       }
     }
   }
@@ -35,16 +123,18 @@ export const processGameDataAssets = async (gameData: any): Promise<any> => {
   // 3. Process gameObjects
   if (Array.isArray(data.gameObjects)) {
     for (const obj of data.gameObjects) {
-      if (obj.url && obj.url.startsWith('blob:')) {
-        obj.url = await blobUrlToBase64(obj.url);
+      if (obj.url) {
+        stats.images.found++;
+        obj.url = await saveAsset(obj.url, 'images', 'obj');
       }
       if (Array.isArray(obj.animations)) {
         for (const anim of obj.animations) {
           if (Array.isArray(anim.frames)) {
             const processedFrames = [];
             for (const frame of anim.frames) {
-              if (frame && frame.startsWith('blob:')) {
-                processedFrames.push(await blobUrlToBase64(frame));
+              if (frame) {
+                stats.images.found++;
+                processedFrames.push(await saveAsset(frame, 'images', 'frame'));
               } else {
                 processedFrames.push(frame);
               }
@@ -62,16 +152,65 @@ export const processGameDataAssets = async (gameData: any): Promise<any> => {
       const elements = data.sceneElements[sceneId];
       if (Array.isArray(elements)) {
         for (const el of elements) {
-          if (el.url && el.url.startsWith('blob:')) {
-            el.url = await blobUrlToBase64(el.url);
+          if (el.url) {
+            stats.images.found++;
+            el.url = await saveAsset(el.url, 'images', 'el');
           }
-          if (el.data && typeof el.data === 'string' && el.data.startsWith('blob:')) {
-            el.data = await blobUrlToBase64(el.data);
+          if (el.data && typeof el.data === 'string') {
+            el.data = await saveAsset(el.data, 'images', 'el_data');
           }
         }
       }
     }
   }
+
+  // 5. Process sceneEvents (resolve local sounds)
+  if (data.sceneEvents && typeof data.sceneEvents === 'object') {
+    for (const sceneId of Object.keys(data.sceneEvents)) {
+      const sceneEvs = data.sceneEvents[sceneId];
+      if (Array.isArray(sceneEvs)) {
+        for (const ev of sceneEvs) {
+          if (Array.isArray(ev.actions)) {
+            for (const act of ev.actions) {
+              if (act.type === 'play_sound' && act.value) {
+                stats.audio.found++;
+                act.value = await saveAsset(act.value, 'audio', 'sound');
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 6. Process projectSounds list
+  if (Array.isArray(data.projectSounds)) {
+    for (const snd of data.projectSounds) {
+      if (snd.dataUrl) {
+        stats.audio.found++;
+        snd.dataUrl = await saveAsset(snd.dataUrl, 'audio', 'project_sound');
+      }
+    }
+  }
+
+  // 7. Process projectVideos list
+  if (Array.isArray(data.projectVideos)) {
+    for (const vid of data.projectVideos) {
+      if (vid.url) {
+        stats.videos.found++;
+        vid.url = await saveAsset(vid.url, 'videos', 'video');
+      }
+    }
+  }
+
+  console.log("--- Export Asset Bundling Summary ---");
+  console.log(`Videos: ${stats.videos.copied}/${stats.videos.found} copied.`);
+  console.log(`Audio: ${stats.audio.copied}/${stats.audio.found} copied.`);
+  console.log(`Images: ${stats.images.copied}/${stats.images.found} copied.`);
+  if (stats.videos.copied !== stats.videos.found || stats.audio.copied !== stats.audio.found) {
+    console.warn("Some assets failed to copy. Check console for read errors.");
+  }
+  console.log("--------------------------------------");
 
   return data;
 };
@@ -79,8 +218,8 @@ export const processGameDataAssets = async (gameData: any): Promise<any> => {
 export const generateProjectZip = async (gameData: any) => {
   const zip = new JSZip();
   
-  // Preprocess gameData blob URLs to base64
-  const processedGameData = await processGameDataAssets(gameData);
+  // Preprocess gameData to bundle assets as files
+  const processedGameData = await processGameDataAssets(gameData, zip);
 
   // Project Metadata
   const metadata = {
@@ -214,6 +353,192 @@ export default {
   zip.file("src/App.tsx", `import React, { useState, useEffect, useRef } from 'react';
 import gameData from './game-data.json';
 
+// Global shared AudioContext to handle gameplay audio and escape browser autoplay constraints
+let globalAudioCtx: any = null;
+const decodedBufferCache: Record<string, AudioBuffer> = {};
+
+const normalizeDataURL = (dataURL: string): string => {
+  if (!dataURL || !dataURL.startsWith('data:')) return dataURL;
+  // Standardize common but non-standard audio mime types
+  let [header, dataPart] = dataURL.split(',');
+  if (!dataPart) return dataURL;
+  
+  let mimeMatch = header.match(/data:(.*?)(;|$)/);
+  if (mimeMatch) {
+    let mime = mimeMatch[1];
+    if (mime === 'audio/mp3' || mime === 'audio/x-mp3' || mime === 'audio/x-mpeg') {
+      header = header.replace(mime, 'audio/mpeg');
+    } else if (mime === 'audio/x-wav') {
+      header = header.replace(mime, 'audio/wav');
+    } else if (mime === 'audio/x-m4a' || mime === 'audio/m4a') {
+      header = header.replace(mime, 'audio/mp4');
+    }
+  }
+  return \`\${header},\${dataPart}\`;
+};
+
+const dataURLToArrayBuffer = (dataURL: string): ArrayBuffer => {
+  try {
+    const normalized = normalizeDataURL(dataURL);
+    const parts = normalized.split(',');
+    if (parts.length < 2) {
+      throw new Error("Invalid Data URL format");
+    }
+    const header = parts[0];
+    const dataPart = parts[1];
+    
+    let binaryString: string;
+    if (header.includes(';base64')) {
+      const base64 = decodeURIComponent(dataPart);
+      binaryString = atob(base64);
+    } else {
+      binaryString = decodeURIComponent(dataPart);
+    }
+    
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (err) {
+    console.error("Failed to convert Data URL to ArrayBuffer:", err);
+    return new ArrayBuffer(0);
+  }
+};
+
+const getSharedAudioContext = (): AudioContext => {
+  if (typeof window === 'undefined') {
+    throw new Error("AudioContext is not available on server-side");
+  }
+  if (!globalAudioCtx) {
+    globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  if (globalAudioCtx.state === 'suspended') {
+    globalAudioCtx.resume().catch(err => {
+      console.warn("Failed to resume shared AudioContext:", err);
+    });
+  }
+  return globalAudioCtx;
+};
+
+// Automatic listener to unlock the AudioContext on the first user interaction
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    try {
+      const ctx = getSharedAudioContext();
+      if (ctx && ctx.state === 'running') {
+        window.removeEventListener('click', unlock);
+        window.removeEventListener('keydown', unlock);
+        window.removeEventListener('touchstart', unlock);
+        console.log("Shared AudioContext successfully unlocked!");
+      }
+    } catch (e) {
+      // Quietly ignore and wait for next interaction
+    }
+  };
+  window.addEventListener('click', unlock, { passive: true });
+  window.addEventListener('keydown', unlock, { passive: true });
+  window.addEventListener('touchstart', unlock, { passive: true });
+}
+
+const playSoundWithSharedContext = async (audioSrc: string) => {
+  if (!audioSrc) return;
+
+  try {
+    const ctx = getSharedAudioContext();
+    
+    // Check decoded buffer cache first
+    if (decodedBufferCache[audioSrc]) {
+      const source = ctx.createBufferSource();
+      source.buffer = decodedBufferCache[audioSrc];
+      source.connect(ctx.destination);
+      source.start(0);
+      return;
+    }
+
+    let arrayBuffer: ArrayBuffer;
+    if (audioSrc.startsWith('data:')) {
+      arrayBuffer = dataURLToArrayBuffer(audioSrc);
+    } else {
+      // Fetch and decode for remote/blob/relative URLs
+      const response = await fetch(audioSrc);
+      arrayBuffer = await response.arrayBuffer();
+    }
+
+    if (arrayBuffer.byteLength === 0) {
+      throw new Error("Empty audio buffer");
+    }
+    
+    let handled = false;
+    const handleSuccess = (audioBuffer: AudioBuffer) => {
+      if (handled) return;
+      handled = true;
+      decodedBufferCache[audioSrc] = audioBuffer;
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    };
+
+    const handleFailure = (err: any) => {
+      if (handled) return;
+      handled = true;
+      console.warn("decodeAudioData failed, trying direct Audio element fallback:", err);
+      try {
+        const audio = new Audio(audioSrc);
+        audio.play().catch(fallbackErr => {
+          console.warn("Standard Audio direct playback failed (logged as warning):", fallbackErr);
+          playBeepWithSharedContext();
+        });
+      } catch (fallbackErr) {
+        console.warn("Standard Audio initialization failed (logged as warning):", fallbackErr);
+        playBeepWithSharedContext();
+      }
+    };
+
+    try {
+      const decodePromise = ctx.decodeAudioData(arrayBuffer, handleSuccess, handleFailure);
+      if (decodePromise && typeof decodePromise.catch === 'function') {
+        decodePromise.catch((err) => {
+          handleFailure(err);
+        });
+      }
+    } catch (decodeErr) {
+      handleFailure(decodeErr);
+    }
+  } catch (err) {
+    console.warn("Shared AudioContext play failed, using direct Audio fallback:", err);
+    try {
+      const audio = new Audio(audioSrc);
+      audio.play().catch(directErr => {
+        console.warn("Direct Audio element playback failed (logged as warning):", directErr);
+        playBeepWithSharedContext();
+      });
+    } catch (directErr) {
+      console.warn("Direct Audio element instantiation failed (logged as warning):", directErr);
+      playBeepWithSharedContext();
+    }
+  }
+};
+
+const playBeepWithSharedContext = () => {
+  try {
+    const ctx = getSharedAudioContext();
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    osc.frequency.value = 523.25; // C5 Note
+    gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.start(0);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (err) {
+    console.warn("Shared context beep failed:", err);
+  }
+};
+
 const AnimatedSprite = ({ frames, fps, speed = 1, width, height }: { frames: string[], fps: number, speed?: number, width: number, height: number }) => {
   const [currentFrame, setCurrentFrame] = useState(0);
   
@@ -324,18 +649,71 @@ export default function GameRunner() {
 
       case 'play_sound':
         try {
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const osc = audioCtx.createOscillator();
-          const gainNode = audioCtx.createGain();
-          osc.connect(gainNode);
-          gainNode.connect(audioCtx.destination);
-          osc.frequency.value = 523.25;
-          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-          osc.start();
-          osc.stop(audioCtx.currentTime + 0.3);
+          if (act.value) {
+            const sound = (gameData.projectSounds || []).find(s => s.id === act.value || s.name === act.value);
+            const soundUrl = sound?.url || sound?.dataUrl || act.value;
+            playSoundWithSharedContext(soundUrl);
+          } else {
+            playBeepWithSharedContext();
+          }
         } catch (e) {
           console.warn("Audio Context blocked or failed:", e);
+        }
+        break;
+
+      case 'play_animation':
+        if (act.target) {
+          const videoId = act.target;
+          const fitToScreen = act.fitToScreen || false;
+          const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === videoId);
+          if (existing) {
+            const elVid = document.getElementById(\`video_player_\${existing.id}\`) as HTMLVideoElement;
+            if (elVid) {
+              elVid.currentTime = 0;
+              elVid.play().catch(e => console.log('Video play failed:', e));
+            }
+          } else {
+            const elId = \`vid_\${Date.now()}\`;
+            setStageElements(prev => [
+              ...prev,
+              {
+                id: elId,
+                type: 'video',
+                videoId: videoId,
+                fitToScreen: fitToScreen,
+                x: fitToScreen ? 0 : 100,
+                y: fitToScreen ? 0 : 50,
+                width: fitToScreen ? VIRTUAL_WIDTH : 300,
+                height: fitToScreen ? VIRTUAL_HEIGHT : 200,
+                layerId: ''
+              }
+            ]);
+            setTimeout(() => {
+              const elVid = document.getElementById(\`video_player_\${elId}\`) as HTMLVideoElement;
+              if (elVid) {
+                elVid.currentTime = 0;
+                elVid.play().catch(e => console.log('Video play failed:', e));
+              }
+            }, 100);
+          }
+        }
+        break;
+
+      case 'stop_animation':
+        if (act.target) {
+          const videoId = act.target;
+          const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === videoId);
+          if (existing) {
+            const elVid = document.getElementById(\`video_player_\${existing.id}\`) as HTMLVideoElement;
+            if (elVid) elVid.pause();
+          }
+        }
+        break;
+
+      case 'remove_animation':
+        if (act.target) {
+          const videoId = act.target;
+          setStageElements(prev => prev.filter(el => !(el.type === 'video' && el.videoId === videoId)));
         }
         break;
 
@@ -560,6 +938,7 @@ export default function GameRunner() {
 
   return (
     <div style={{ backgroundColor: '#0a0a0c', width: '100vw', height: '100vh', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      {gameData.customCSS && <style>{gameData.customCSS}</style>}
       <div 
         style={{ 
           position: 'relative', 
@@ -603,7 +982,7 @@ export default function GameRunner() {
                  top: el.type === 'bg' ? 0 : el.y, 
                  width: el.type === 'bg' ? '100%' : el.width, 
                  height: el.type === 'bg' ? '100%' : el.height, 
-                 backgroundImage: (!isText && bgUrl) ? \`url(\${bgUrl})\` : undefined, 
+                 backgroundImage: (!isText && bgUrl && el.type !== 'video') ? \`url(\${bgUrl})\` : undefined, 
                  backgroundSize: '100% 100%',
                  backgroundRepeat: 'no-repeat',
                  backgroundColor: (!bgUrl && el.type === 'btn') ? 'rgba(236,72,153,0.2)' : undefined,
@@ -615,6 +994,18 @@ export default function GameRunner() {
                }}
              >
                {el.type === 'btn' && <button style={{width:'100%',height:'100%',background:'transparent',border:'none', cursor: 'pointer', color: 'white', fontWeight: 'bold'}}>{el.text}</button>}
+               {el.type === 'video' && (
+                 <video
+                   id={\`video_player_\${el.id}\`}
+                   src={(gameData.projectVideos || []).find(v => v.id === el.videoId)?.url}
+                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                   playsInline
+                   preload="auto"
+                   onEnded={() => {
+                     setStageElements(prev => prev.filter(item => item.id !== el.id));
+                   }}
+                 />
+               )}
                {el.type === 'obj' && gameObject?.type === 'text' ? (
                  <div 
                    style={{
@@ -658,7 +1049,12 @@ export default function GameRunner() {
           <div style={{ fontSize: '48px', marginBottom: '16px', animation: 'spin 4s linear infinite' }}>🔄</div>
           <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>Please Rotate Your Device</h2>
           <p style={{ color: '#a1a1aa', fontSize: '14px', maxWidth: '300px', marginBottom: '24px' }}>This game is designed for {aspectRatio} screen layout. Please rotate your screen for the best experience.</p>
-          <button onClick={() => setShowRotationPrompt(false)} style={{ backgroundColor: '#fff', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>Play Anyway</button>\n        </div>\n      )}\n    </div>\n  );\n}
+          <button onClick={() => setShowRotationPrompt(false)} style={{ backgroundColor: '#fff', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>Play Anyway</button>
+        </div>
+      )}
+    </div>
+  );
+}
 `);
 
   const content = await zip.generateAsync({ type: "blob" });

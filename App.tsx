@@ -360,7 +360,7 @@ export const isLayerInVisibleView = (char: any, partId: string) => {
     while (currentId && currentId !== 'root') {
         const curr = char[currentId];
         if (!curr) break;
-        const isViewNode = curr.tags?.includes('View') || curr.label?.toLowerCase().includes('view');
+        const isViewNode = curr.tags?.includes('View') || curr.label?.toLowerCase()?.includes('view');
         if (isViewNode && (curr.isVisible === false || curr.opacity === 0)) return false;
         currentId = curr.parentId;
     }
@@ -3420,7 +3420,7 @@ export const App = () => {
              file = new File([buffer], newName, { type: "application/zip" });
           }
 
-          if (file.name.toLowerCase().endsWith(".zip") || file.name.toLowerCase().includes(".zip") || isRealZip || file.type === "application/zip" || file.type === "application/x-zip-compressed") {
+          if (file.name?.toLowerCase()?.endsWith(".zip") || file.name?.toLowerCase()?.includes(".zip") || isRealZip || file.type === "application/zip" || file.type === "application/x-zip-compressed") {
              handleNewProject("CHARACTER");
              setPendingImportFile(file);
              setIsCharacterStudioModalOpen(true);
@@ -3430,7 +3430,7 @@ export const App = () => {
           }
 
           // 2. Process .psd (original or converted from .bin) and load into specialized .carta project
-          if (file.name.toLowerCase().endsWith(".psd")) {
+          if (file.name?.toLowerCase()?.endsWith(".psd")) {
              showAppToast(t ? t("Processing interactive character layers...") : "Processing interactive character layers...");
              
              const { readPsd } = await import("ag-psd");
@@ -3542,10 +3542,10 @@ export const App = () => {
              }
 
               // Auto-toggle views so only the first one is visible
-              const allViews = Object.values(newCharacter).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase().includes("view"));
+              const allViews = Object.values(newCharacter).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase()?.includes("view"));
               if (allViews.length > 0) {
                   let defaultView: any = allViews.find((v: any) => v.isVisible === true);
-                  if (!defaultView) defaultView = allViews.find((v: any) => v.label?.toLowerCase().includes("front"));
+                  if (!defaultView) defaultView = allViews.find((v: any) => v.label?.toLowerCase()?.includes("front"));
                   if (!defaultView) defaultView = allViews[allViews.length - 1]; // Top-most view folder
                   
                   allViews.forEach((v: any) => {
@@ -3625,7 +3625,7 @@ export const App = () => {
     }
 
     let processedFile = file;
-    if (file && file instanceof File && file.name.toLowerCase().endsWith(".bin")) {
+    if (file && file instanceof File && file.name?.toLowerCase()?.endsWith(".bin")) {
       try {
         const text = await file.text();
         JSON.parse(text);
@@ -4928,16 +4928,16 @@ export const App = () => {
 
             {activeSceneCharacterId !== "ALL" && !!character && (
               <div className="space-y-4">
-                 {Object.values(character).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase().includes("view")).length === 0 && (
+                 {Object.values(character).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase()?.includes("view")).length === 0 && (
                    <p className="text-[10px] text-gray-500 italic p-4 text-center">{t("No views found in this character.")}</p>
                 )}
-                {Object.values(character).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase().includes("view")).map((viewPart: any) => {
+                {Object.values(character).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase()?.includes("view")).map((viewPart: any) => {
                   const isViewActive = viewPart.isVisible !== false && viewPart.opacity !== 0;
                   return (
                     <button 
                       key={viewPart.id} 
                       onClick={() => {
-                          const views = Object.values(character).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase().includes("view"));
+                          const views = Object.values(character).filter((p: any) => p.tags?.includes("View") || p.label?.toLowerCase()?.includes("view"));
                           const updates: Record<string, number> = {};
                           setCharacter((prev: any) => {
                              if (!prev) return prev;
@@ -4969,7 +4969,7 @@ export const App = () => {
                                          const sortedParts = getSortedLayerTree(next);
                                          const firstVisiblePart = sortedParts.find(item => 
                                              item.part.id !== "root" && 
-                                             !(item.part.tags?.includes("View") || item.part.label?.toLowerCase().includes("view")) && 
+                                             !(item.part.tags?.includes("View") || item.part.label?.toLowerCase()?.includes("view")) && 
                                              isLayerInVisibleView(next, item.part.id)
                                          );
                                          const newTarget = firstVisiblePart ? firstVisiblePart.part.id : "root";
@@ -5586,6 +5586,7 @@ export const App = () => {
           <GameCreatorStudio
             projectId={currentProjectId}
             projectName={projectName}
+            customCSS={customCSS}
             onBack={() => setAppMode("PROJECT_MANAGER")}
             onSave={handleSaveToStorage}
           />
@@ -6006,12 +6007,12 @@ export const App = () => {
                   selectedPartIds={selectedPartIds}
                   setSelectedPartIds={setSelectedPartIds}
                   initialTool={
-                    (pendingImportFile?.name.toLowerCase().endsWith('.zip') || 
-                     pendingImportFile?.name.toLowerCase().includes('.zip') || 
+                    (pendingImportFile?.name?.toLowerCase()?.endsWith('.zip') || 
+                     pendingImportFile?.name?.toLowerCase()?.includes('.zip') || 
                      pendingImportFile?.type === 'application/zip' || 
                      pendingImportFile?.type === 'application/x-zip-compressed' || 
-                     pendingImportFile?.name.toLowerCase().endsWith('.bin') || 
-                     pendingImportFile?.name.toLowerCase().includes('.bin'))
+                     pendingImportFile?.name?.toLowerCase()?.endsWith('.bin') || 
+                     pendingImportFile?.name?.toLowerCase()?.includes('.bin'))
                       ? 'ASSEMBLER'
                       : (activeCharacterInstance?.origin || null)
                   }
@@ -9356,7 +9357,7 @@ export const App = () => {
                                         getSortedLayerTree(character)
                                           .filter(({ part }) => isLayerInVisibleView(character, part.id))
                                           .map(({ part, depth }) => {
-                                            const isViewNode = part.tags?.includes("View") || part.label?.toLowerCase().includes("view");
+                                            const isViewNode = part.tags?.includes("View") || part.label?.toLowerCase()?.includes("view");
                                             const prefix = "\u00A0\u00A0".repeat(depth) + (depth > 0 ? "└─ " : "");
                                             return (
                                               <option key={part.id} value={part.id} className={isViewNode ? "font-bold text-cyan-400 bg-cyan-950/20" : ""}>

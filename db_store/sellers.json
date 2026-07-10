@@ -1,0 +1,32 @@
+{
+  "seller_fhgv": {
+    "id": "seller_fhgv",
+    "sellerId": "seller_fhgv",
+    "email": "fhgv@gmail.com",
+    "payout": 0,
+    "bankName": "Unit / Moniepoint",
+    "bankOwnerName": "",
+    "accountNumber": "",
+    "updatedAt": "2026-06-24T07:30:08.806Z"
+  },
+  "seller_elcarton0001": {
+    "id": "seller_elcarton0001",
+    "sellerId": "seller_elcarton0001",
+    "email": "elcarton0001@gmail.com",
+    "payout": 0,
+    "bankName": "Unit / Moniepoint",
+    "bankOwnerName": "",
+    "accountNumber": "",
+    "updatedAt": "2026-07-08T15:07:31.406Z"
+  },
+  "animato591": {
+    "id": "animato591",
+    "sellerId": "animato591",
+    "email": "animato@gmail.com",
+    "payout": 0,
+    "bankName": " Moniepoint",
+    "bankOwnerName": "Albert",
+    "accountNumber": "",
+    "updatedAt": "2026-07-08T15:07:31.720Z"
+  }
+}
