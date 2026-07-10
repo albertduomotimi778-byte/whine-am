@@ -77,7 +77,7 @@ export default function GameRunner() {
   useEffect(() => { stageElementsRef.current = stageElements; }, [stageElements]);
 
   useEffect(() => {
-    const sceneEls = gameData.sceneElements[activeSceneId] || [];
+    const sceneEls = (gameData.sceneElements && gameData.sceneElements[activeSceneId]) || [];
     setStageElements(sceneEls);
   }, [activeSceneId]);
 
@@ -102,8 +102,9 @@ export default function GameRunner() {
       case 'play_sound':
         if (act.value) {
           const sound = (gameData.projectSounds || []).find(s => s.id === act.value || s.name === act.value);
-          if (sound && (sound.url || sound.dataUrl)) {
-            playSoundWithSharedContext(sound.url || sound.dataUrl);
+          const audioSrc = sound?.url || sound?.dataUrl || act.value;
+          if (audioSrc) {
+            playSoundWithSharedContext(audioSrc);
           }
         }
         break;
@@ -156,20 +157,40 @@ export default function GameRunner() {
           setTimeout(() => setStageElements(prev => prev.filter(el => el.id !== toastId)), 3000);
         }
         break;
+      case 'move_straight':
+      case 'move_zigzag':
+        if (act.target) {
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, x: el.x + 80, y: el.y + (act.type === 'move_zigzag' ? 30 : 0) } : el));
+        }
+        break;
+      case 'change_animation':
+        if (act.target && act.value !== undefined) {
+          setStageElements(prev => prev.map(el => (el.id === act.target || el.data === act.target || el.buttonId === act.target) ? { ...el, activeAnimationIndex: Number(act.value) } : el));
+        }
+        break;
     }
   };
 
+  const lastTapRef = useRef({ time: 0, target: '' });
   const handleButtonClick = (buttonId) => {
+    const now = Date.now();
+    const isDoubleTap = now - lastTapRef.current.time < 300 && lastTapRef.current.target === buttonId;
+    lastTapRef.current = { time: now, target: buttonId };
+
     const btnEl = stageElementsRef.current.find(e => e.id === buttonId);
-    const sceneEvents = gameData.sceneEvents[activeSceneId] || [];
+    const sceneEvents = (gameData.sceneEvents && gameData.sceneEvents[activeSceneId]) || [];
     sceneEvents.forEach(ev => {
-      const isPressed = ev.conditions?.some(cond => (cond.type === 'click' || cond.type === 'pressed') && (cond.target === buttonId || cond.target === btnEl?.buttonId || cond.target === btnEl?.data));
+      const isPressed = ev.conditions?.some(cond => {
+        if (cond.target !== buttonId && cond.target !== btnEl?.buttonId && cond.target !== btnEl?.data) return false;
+        if (isDoubleTap && cond.type === 'double_tap') return true;
+        return cond.type === 'click' || cond.type === 'pressed';
+      });
       if (isPressed) ev.actions?.forEach(act => executeAction(act));
     });
   };
 
   useEffect(() => {
-    const sceneEvents = gameData.sceneEvents[activeSceneId] || [];
+    const sceneEvents = (gameData.sceneEvents && gameData.sceneEvents[activeSceneId]) || [];
     sceneEvents.forEach(ev => {
       if (ev.conditions?.some(cond => cond.type === 'scene_start')) ev.actions?.forEach(act => executeAction(act));
     });
@@ -184,7 +205,7 @@ export default function GameRunner() {
           }
           return false;
         });
-        if (allMet) ev.actions?.forEach(act => executeAction(act));
+        if (allMet && ev.conditions?.some(c => c.type === 'collision')) ev.actions?.forEach(act => executeAction(act));
       });
     }, 200);
     return () => clearInterval(interval);
@@ -192,11 +213,12 @@ export default function GameRunner() {
 
   return (
     <div style={{ backgroundColor: '#000', width: '100vw', height: '100vh', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {gameData.customCSS && <style>{gameData.customCSS}</style>}
       <div style={{ position: 'relative', width: `${VIRTUAL_WIDTH}px`, height: `${VIRTUAL_HEIGHT}px`, transform: `scale(${scale})`, backgroundColor: gameData.stageBgColor || '#000', overflow: 'hidden' }}>
         {stageElements.map((el, i) => {
           const isInteractive = el.type === 'btn' || el.type === 'obj';
           const gameObject = (gameData.gameObjects || []).find(g => g.id === el.data);
-          const bgUrl = el.url || gameObject?.url || gameObject?.animations?.[0] || el.data;
+          const bgUrl = el.url || gameObject?.url || gameObject?.animations?.[el.activeAnimationIndex || 0] || gameObject?.animations?.[0] || el.data;
           return (
             <div key={el.id || i} onClick={(e) => { if (isInteractive) { e.stopPropagation(); handleButtonClick(el.id); } }} style={{ position: 'absolute', left: el.type === 'bg' ? 0 : el.x, top: el.type === 'bg' ? 0 : el.y, width: el.type === 'bg' ? '100%' : el.width, height: el.type === 'bg' ? '100%' : el.height, backgroundImage: (el.type !== 'video' && bgUrl) ? `url(${bgUrl})` : undefined, backgroundSize: '100% 100%', opacity: el.opacity ?? 1, transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined, zIndex: el.type === 'bg' ? 0 : 10, cursor: isInteractive ? 'pointer' : 'default' }}>
               {el.type === 'btn' && <button style={{ width: '100%', height: '100%', background: 'transparent', border: 'none', color: 'white', fontWeight: 'bold' }}>{el.text}</button>}

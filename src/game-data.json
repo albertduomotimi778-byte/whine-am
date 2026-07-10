@@ -34,7 +34,7 @@
         "actions": [
           {
             "type": "play_sound",
-            "value": "./assets/audio/asset_0_6xz4b65rl.wav"
+            "value": "./assets/audio/asset_0_y8m7t4ebq.wav"
           }
         ]
       }
@@ -50,8 +50,8 @@
           "id": "anim_default",
           "name": "Animation 1",
           "frames": [
-            "./assets/images/asset_1_qprok1et8.png",
-            "./assets/images/asset_2_nuzsn8j6p.png"
+            "./assets/images/asset_1_cz0vrj827.png",
+            "./assets/images/asset_2_e0m260089.png"
           ],
           "fps": 12
         }
@@ -88,6 +88,36 @@
   "stageBgColor": "#111111",
   "aspectRatio": "landscape",
   "activeSceneId": "scene_1",
+  "projectSounds": [
+    {
+      "id": "synth_1783687925119_atm6c",
+      "name": "Retro Jump 3",
+      "dataUrl": "./assets/audio/asset_3_3n8ngtrgu.wav",
+      "synthParams": {
+        "waveform": "square",
+        "duration": 0.2,
+        "startFreq": 195,
+        "endFreq": 657,
+        "attack": 0.009,
+        "decay": 0.067,
+        "sustain": 0.45,
+        "release": 0.122,
+        "volume": 0.8,
+        "vibratoFreq": 0,
+        "vibratoDepth": 0,
+        "bitCrush": 0,
+        "downsample": 1
+      }
+    }
+  ],
+  "projectVideos": [
+    {
+      "id": "vid_1783689139681",
+      "name": "5017.mp4",
+      "url": "./assets/videos/asset_4_wofdbwrw3.mp4"
+    }
+  ],
+  "customCSS": "",
   "VIRTUAL_WIDTH": 640,
   "VIRTUAL_HEIGHT": 360
 }
