@@ -22,7 +22,7 @@
       {
         "id": "el_1783697847910",
         "type": "bg",
-        "url": "./assets/images/asset_0_dqus7p6xn.png",
+        "url": "./assets/images/asset_0_v38hqvehq.png",
         "x": 0,
         "y": 0,
         "width": 640,
@@ -44,7 +44,7 @@
         "actions": [
           {
             "type": "play_sound",
-            "value": "./assets/audio/asset_1_uo6xshixn.wav"
+            "value": "./assets/audio/asset_1_luz4vcjj1.wav"
           }
         ]
       }
@@ -60,8 +60,8 @@
           "id": "anim_default",
           "name": "Animation 1",
           "frames": [
-            "./assets/images/asset_2_ygf6tkjdw.png",
-            "./assets/images/asset_3_a2zsvpyxi.png"
+            "./assets/images/asset_2_cfkrnqigv.png",
+            "./assets/images/asset_3_hkgb834la.png"
           ],
           "fps": 12
         }
@@ -91,7 +91,7 @@
   "environments": [
     {
       "id": "env_1783697845913",
-      "url": "./assets/images/asset_4_3gvuohz4m.png"
+      "url": "./assets/images/asset_4_2mkqhiswq.png"
     }
   ],
   "layers": [
