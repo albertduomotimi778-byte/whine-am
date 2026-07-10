@@ -103,6 +103,55 @@ export default function GameRunner() {
         }
         break;
 
+      case 'play_animation':
+        if (act.target) {
+          const videoId = act.target;
+          const fitToScreen = act.fitToScreen || false;
+          const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === videoId);
+          if (existing) {
+            const elVid = document.getElementById(`video_player_${existing.id}`);
+            if (elVid) {
+              elVid.currentTime = 0;
+              elVid.play().catch(e => console.log('Video play failed:', e));
+            }
+          } else {
+            const elId = `vid_${Date.now()}`;
+            setStageElements(prev => [
+              ...prev,
+              {
+                id: elId,
+                type: 'video',
+                videoId: videoId,
+                fitToScreen: fitToScreen,
+                x: fitToScreen ? 0 : 100,
+                y: fitToScreen ? 0 : 50,
+                width: fitToScreen ? VIRTUAL_WIDTH : 300,
+                height: fitToScreen ? VIRTUAL_HEIGHT : 200,
+                layerId: ''
+              }
+            ]);
+          }
+        }
+        break;
+
+      case 'stop_animation':
+        if (act.target) {
+          const videoId = act.target;
+          const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === videoId);
+          if (existing) {
+            const elVid = document.getElementById(`video_player_${existing.id}`);
+            if (elVid) elVid.pause();
+          }
+        }
+        break;
+
+      case 'remove_animation':
+        if (act.target) {
+          const videoId = act.target;
+          setStageElements(prev => prev.filter(el => !(el.type === 'video' && el.videoId === videoId)));
+        }
+        break;
+
       case 'play_sound':
         try {
           const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -390,7 +439,7 @@ export default function GameRunner() {
                  top: el.type === 'bg' ? 0 : el.y, 
                  width: el.type === 'bg' ? '100%' : el.width, 
                  height: el.type === 'bg' ? '100%' : el.height, 
-                 backgroundImage: (!isText && bgUrl) ? `url(${bgUrl})` : undefined, 
+                 backgroundImage: (!isText && bgUrl && el.type !== 'video') ? `url(${bgUrl})` : undefined, 
                  backgroundSize: '100% 100%', 
                  backgroundRepeat: 'no-repeat', 
                  backgroundColor: (!bgUrl && el.type === 'btn') ? 'rgba(236,72,153,0.2)' : undefined, 
@@ -402,6 +451,19 @@ export default function GameRunner() {
                }}
              >
                {el.type === 'btn' && <button style={{width:'100%',height:'100%',background:'transparent',border:'none', cursor: 'pointer', color: 'white', fontWeight: 'bold'}}>{el.text}</button>}
+               {el.type === 'video' && (
+                 <video
+                   id={`video_player_${el.id}`}
+                   src={(gameData.projectVideos || []).find(v => v.id === el.videoId)?.url}
+                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                   autoPlay
+                   playsInline
+                   preload="auto"
+                   onEnded={() => {
+                     setStageElements(prev => prev.filter(item => item.id !== el.id));
+                   }}
+                 />
+               )}
                {el.type === 'obj' && gameObject?.type === 'text' ? (
                  <div 
                    style={{
