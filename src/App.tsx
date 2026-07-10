@@ -166,19 +166,12 @@ export default function GameRunner() {
         break;
 
       case 'play_sound':
-        try {
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const osc = audioCtx.createOscillator();
-          const gainNode = audioCtx.createGain();
-          osc.connect(gainNode);
-          gainNode.connect(audioCtx.destination);
-          osc.frequency.value = 523.25;
-          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-          osc.start();
-          osc.stop(audioCtx.currentTime + 0.3);
-        } catch (e) {
-          console.warn("Audio Context blocked or failed:", e);
+        if (act.value) {
+          const sound = (gameData.projectSounds || []).find(s => s.id === act.value || s.name === act.value);
+          if (sound && (sound.url || sound.dataUrl)) {
+            const audio = new Audio(sound.url || sound.dataUrl);
+            audio.play().catch(e => console.warn("Audio playback failed:", e));
+          }
         }
         break;
 
