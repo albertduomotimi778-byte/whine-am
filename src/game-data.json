@@ -18,6 +18,16 @@
         "width": 50,
         "height": 50,
         "layerId": "layer_1"
+      },
+      {
+        "id": "el_1783697847910",
+        "type": "bg",
+        "url": "./assets/images/asset_0_dqus7p6xn.png",
+        "x": 0,
+        "y": 0,
+        "width": 640,
+        "height": 360,
+        "layerId": "layer_1"
       }
     ]
   },
@@ -33,9 +43,8 @@
         ],
         "actions": [
           {
-            "type": "play_animation",
-            "fitToScreen": true,
-            "target": "vid_1783689139681"
+            "type": "play_sound",
+            "value": "./assets/audio/asset_1_uo6xshixn.wav"
           }
         ]
       }
@@ -51,8 +60,8 @@
           "id": "anim_default",
           "name": "Animation 1",
           "frames": [
-            "./assets/images/asset_0_z3qmhey6g.png",
-            "./assets/images/asset_1_d17uj468w.png"
+            "./assets/images/asset_2_ygf6tkjdw.png",
+            "./assets/images/asset_3_a2zsvpyxi.png"
           ],
           "fps": 12
         }
@@ -79,7 +88,12 @@
       "data": "https://cdn-icons-png.flaticon.com/512/359/359394.png"
     }
   ],
-  "environments": [],
+  "environments": [
+    {
+      "id": "env_1783697845913",
+      "url": "./assets/images/asset_4_3gvuohz4m.png"
+    }
+  ],
   "layers": [
     {
       "id": "layer_1",
