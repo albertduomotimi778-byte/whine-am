@@ -18,41 +18,6 @@
         "width": 50,
         "height": 50,
         "layerId": "layer_1"
-      },
-      {
-        "id": "vid_1783687163653",
-        "type": "video",
-        "videoId": "vid_1783679660581",
-        "fitToScreen": true,
-        "x": 0,
-        "y": 0,
-        "width": 640,
-        "height": 360,
-        "layerId": "layer_1"
-      },
-      {
-        "id": "el_1783687226465",
-        "type": "btn",
-        "buttonId": "btn_right",
-        "data": "https://cdn-icons-png.flaticon.com/512/271/271228.png",
-        "url": null,
-        "x": 50,
-        "y": 50,
-        "width": 50,
-        "height": 50,
-        "layerId": "layer_1"
-      },
-      {
-        "id": "el_1783687235351",
-        "type": "btn",
-        "buttonId": "btn_left",
-        "data": "https://cdn-icons-png.flaticon.com/512/271/271220.png",
-        "url": null,
-        "x": 402,
-        "y": 50,
-        "width": 50,
-        "height": 50,
-        "layerId": "layer_1"
       }
     ]
   },
@@ -69,22 +34,8 @@
         "actions": [
           {
             "type": "play_animation",
-            "target": "vid_1783679660581",
-            "fitToScreen": true
-          }
-        ]
-      },
-      {
-        "id": "ev_1783687244841",
-        "conditions": [
-          {
-            "type": "pressed",
-            "target": "el_1783687235351"
-          }
-        ],
-        "actions": [
-          {
-            "type": "stop_animation"
+            "fitToScreen": true,
+            "target": "vid_1783689139681"
           }
         ]
       }

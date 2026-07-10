@@ -74,7 +74,7 @@ export default function GameRunner() {
     setStageElements(sceneEls);
   }, [activeSceneId]);
 
-  const executeAction = (act) => {
+  const executeAction = (act, triggerEvent) => {
     switch (act.type) {
       case 'goto_scene':
         if (act.target) {
@@ -107,10 +107,13 @@ export default function GameRunner() {
         if (act.target) {
           const videoId = act.target;
           const fitToScreen = act.fitToScreen || false;
+          const triggerDesc = triggerEvent ? `Event ID: ${triggerEvent.id}, Name: "${triggerEvent.name || 'Unnamed'}", Conditions: ${JSON.stringify(triggerEvent.conditions || [])}` : 'Direct trigger';
+          console.log(`[DEBUG] play_animation action triggered. Gating conditions verified. Triggering details: ${triggerDesc}`);
           const existing = stageElementsRef.current.find(el => el.type === 'video' && el.videoId === videoId);
           if (existing) {
             const elVid = document.getElementById(`video_player_${existing.id}`);
             if (elVid) {
+              console.log(`[DEBUG] Playing existing video element ${existing.id} programmatically. Source: ${elVid.src || 'None'}`);
               elVid.currentTime = 0;
               elVid.play().catch(e => console.log('Video play failed:', e));
             }
@@ -130,6 +133,16 @@ export default function GameRunner() {
                 layerId: ''
               }
             ]);
+            setTimeout(() => {
+              const elVid = document.getElementById(`video_player_${elId}`);
+              if (elVid) {
+                console.log(`[DEBUG] Playing newly mounted video element ${elId} programmatically. Source: ${elVid.src || 'None'}`);
+                elVid.currentTime = 0;
+                elVid.play().catch(e => console.log('Video play failed:', e));
+              } else {
+                console.warn(`[DEBUG] Could not find video element with ID video_player_${elId} after mount`);
+              }
+            }, 100);
           }
         }
         break;
@@ -323,7 +336,7 @@ export default function GameRunner() {
         (cond.target === buttonId || (btnEl?.buttonId && cond.target === btnEl.buttonId) || (btnEl?.data && cond.target === btnEl.data))
       );
       if (isPressed) {
-        ev.actions?.forEach(act => executeAction(act));
+        ev.actions?.forEach(act => executeAction(act, ev));
       }
     });
   };
@@ -333,7 +346,7 @@ export default function GameRunner() {
     sceneEvents.forEach(ev => {
       const hasSceneStart = ev.conditions?.some(cond => cond.type === 'scene_start');
       if (hasSceneStart) {
-        ev.actions?.forEach(act => executeAction(act));
+        ev.actions?.forEach(act => executeAction(act, ev));
       }
     });
 
@@ -388,7 +401,7 @@ export default function GameRunner() {
         });
 
         if (allConditionsMet) {
-          ev.actions?.forEach(act => executeAction(act));
+          ev.actions?.forEach(act => executeAction(act, ev));
         }
       });
     }, 200);
@@ -450,13 +463,12 @@ export default function GameRunner() {
                  zIndex: el.type === 'bg' ? 0 : finalZ 
                }}
              >
-               {el.type === 'btn' && <button style={{width:'100%',height:'100%',background:'transparent',border:'none', cursor: 'pointer', color: 'white', fontWeight: 'bold'}}>{el.text}</button>}
+               {el.type === 'btn' && <button style={{width:'100%',height:'100%',background:'transparent',border:'none', cursor: 'pointer', color: 'white', fontWeight: 'bold', pointerEvents: 'none'}}>{el.text}</button>}
                {el.type === 'video' && (
                  <video
                    id={`video_player_${el.id}`}
                    src={(gameData.projectVideos || []).find(v => v.id === el.videoId)?.url}
                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                   autoPlay
                    playsInline
                    preload="auto"
                    onEnded={() => {
