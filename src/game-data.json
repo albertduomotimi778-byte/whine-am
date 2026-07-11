@@ -22,28 +22,7 @@
     ]
   },
   "sceneEvents": {
-    "scene_1": [
-      {
-        "id": "ev_1",
-        "conditions": [
-          {
-            "type": "pressed",
-            "target": "el_1783680976517"
-          }
-        ],
-        "actions": [
-          {
-            "type": "play_sound",
-            "value": "./assets/audio/asset_0_rh4d1jezt.wav"
-          },
-          {
-            "type": "play_animation",
-            "target": "vid_1783798188070",
-            "fitToScreen": true
-          }
-        ]
-      }
-    ]
+    "scene_1": []
   },
   "gameObjects": [
     {
@@ -55,8 +34,8 @@
           "id": "anim_default",
           "name": "Animation 1",
           "frames": [
-            "./assets/images/asset_1_u2t7j4ntm.png",
-            "./assets/images/asset_2_4bi2wpd41.png"
+            "./assets/images/asset_0_0gmqks11l.png",
+            "./assets/images/asset_1_6ogdubz4i.png"
           ],
           "fps": 12
         }
@@ -97,7 +76,7 @@
     {
       "id": "synth_1783687925119_atm6c",
       "name": "Retro Jump 3",
-      "dataUrl": "./assets/audio/asset_3_kgzxrfta4.wav",
+      "dataUrl": "./assets/audio/asset_2_ebk5gs19l.wav",
       "synthParams": {
         "waveform": "square",
         "duration": 0.2,
@@ -117,9 +96,9 @@
   ],
   "projectVideos": [
     {
-      "id": "vid_1783798188070",
-      "name": "5127.mp4",
-      "url": "./assets/videos/asset_4_ezn36sdl2.mp4"
+      "id": "vid_1783798997527",
+      "name": "5017.mp4",
+      "url": "./assets/videos/asset_3_zuh1gn815.mp4"
     }
   ],
   "customCSS": "",

@@ -218,11 +218,14 @@ export default function GameRunner() {
         {stageElements.map((el, i) => {
           const isInteractive = el.type === 'btn' || el.type === 'obj';
           const gameObject = (gameData.gameObjects || []).find(g => g.id === el.data);
+          const isButton = el.type === 'btn';
+          const isText = gameObject?.type === 'text';
+          const finalZ = el.type === 'bg' ? 0 : (isButton ? 1000 : (isText ? 2000 : 10));
           const bgUrl = el.url || gameObject?.url || gameObject?.animations?.[el.activeAnimationIndex || 0] || gameObject?.animations?.[0] || el.data;
           return (
-            <div key={el.id || i} onClick={(e) => { if (isInteractive) { e.stopPropagation(); handleButtonClick(el.id); } }} style={{ position: 'absolute', left: el.type === 'bg' ? 0 : el.x, top: el.type === 'bg' ? 0 : el.y, width: el.type === 'bg' ? '100%' : el.width, height: el.type === 'bg' ? '100%' : el.height, backgroundImage: (el.type !== 'video' && bgUrl) ? `url(${bgUrl})` : undefined, backgroundSize: '100% 100%', opacity: el.opacity ?? 1, transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined, zIndex: el.type === 'bg' ? 0 : 10, cursor: isInteractive ? 'pointer' : 'default' }}>
+            <div key={el.id || i} onClick={(e) => { if (isInteractive) { e.stopPropagation(); handleButtonClick(el.id); } }} style={{ position: 'absolute', left: el.type === 'bg' ? 0 : el.x, top: el.type === 'bg' ? 0 : el.y, width: el.type === 'bg' ? '100%' : el.width, height: el.type === 'bg' ? '100%' : el.height, backgroundImage: (el.type !== 'video' && bgUrl) ? `url(${bgUrl})` : undefined, backgroundSize: '100% 100%', opacity: el.opacity ?? 1, transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined, zIndex: finalZ, cursor: isInteractive ? 'pointer' : 'default', pointerEvents: isInteractive ? 'auto' : 'none' }}>
               {el.type === 'btn' && <button style={{ width: '100%', height: '100%', background: 'transparent', border: 'none', color: 'white', fontWeight: 'bold' }}>{el.text}</button>}
-              {el.type === 'video' && <video id={`video_player_${el.id}`} src={(gameData.projectVideos || []).find(v => v.id === el.videoId)?.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} playsInline />}
+              {el.type === 'video' && <video id={`video_player_${el.id}`} src={(gameData.projectVideos || []).find(v => v.id === el.videoId)?.url} style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} playsInline />}
             </div>
           );
         })}
